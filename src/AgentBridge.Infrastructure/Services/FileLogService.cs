@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using AgentBridge.Abstractions.Interfaces;
 using AgentBridge.Abstractions.Models;
 using Microsoft.Extensions.Logging;
+using System.Globalization;
 
 namespace AgentBridge.Infrastructure.Services;
 
@@ -19,7 +20,7 @@ public sealed partial class FileLogService(string logsDirectory) : ILogService
 
         var dates = Directory.EnumerateFiles(logsDirectory, "*.log")
             .Select(Path.GetFileNameWithoutExtension)
-            .Select(name => DateOnly.TryParseExact(name, "yyyy-MM-dd", out var d) ? (DateOnly?)d : null)
+            .Select(name => DateOnly.TryParseExact(name, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) ? (DateOnly?)d : null)
             .Where(d => d.HasValue)
             .Select(d => d!.Value)
             .OrderByDescending(d => d)
@@ -30,13 +31,21 @@ public sealed partial class FileLogService(string logsDirectory) : ILogService
 
     public async Task<IReadOnlyList<LogEntry>> ReadLogAsync(DateOnly date, CancellationToken cancellationToken)
     {
-        var path = Path.Combine(logsDirectory, $"{date:yyyy-MM-dd}.log");
+        var path = Path.Combine(logsDirectory, date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + ".log");
         if (!File.Exists(path))
         {
             return Array.Empty<LogEntry>();
         }
 
-        var lines = await File.ReadAllLinesAsync(path, cancellationToken).ConfigureAwait(false);
+        var lines = new List<string>();
+        await using var stream = new FileStream(
+            path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete,
+            bufferSize: 4096, options: FileOptions.Asynchronous | FileOptions.SequentialScan);
+        using var reader = new StreamReader(stream);
+        while (await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false) is { } line)
+        {
+            lines.Add(line);
+        }
         return ParseLines(lines);
     }
 

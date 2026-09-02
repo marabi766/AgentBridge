@@ -2,18 +2,18 @@
 
 ## Acceptance Decision
 
-**APPROVED** — the corrective backend iteration is complete. The previously blocking delivery-safety, restart, stop-cleanup, retry, path-containment, and architecture-guard defects are fixed and independently verified.
+**APPROVED** — the corrective backend iteration and first WPF presentation increment are complete. The supplied UI design is approved with the capability constraints recorded in `UI_DESIGN_REVIEW.md`.
 
 This approval applies to the backend corrective gate, not to the unfinished product as a whole.
 
 ## Current State
 
-- Current milestone: Milestone 7 — GUI dashboard design
+- Current milestone: Milestone 8 — WPF product UI implementation
 - Verified milestones: 2–6
-- Partially complete milestone: 1 — architecture is verified; WPF shell awaits the approved design
-- Current objective: Obtain and review the Claude Design deliverables before implementing the WPF presentation layer.
-- Overall health: Green backend foundation / incomplete product
-- Current change risk: Low while design work is external to source
+- Partially complete milestone: 1 — architecture and functional WPF shell are verified; advanced desktop features remain
+- Current objective: Complete the setup wizard, tray/notifications, and verified desktop adapters on top of the approved shell.
+- Overall health: Green backend foundation / functional Dry Run desktop UI / incomplete Live delivery
+- Current change risk: Medium because the desktop host and logging read path changed
 
 ## Work Completed by Codex
 
@@ -26,26 +26,34 @@ This approval applies to the backend corrective gate, not to the unfinished prod
 - Restricted protocol file settings to simple project-root filenames and made validation honor configured names.
 - Added an executable architecture dependency-direction guard.
 - Added a consolidated UI design brief and a ready-to-use Claude Design prompt.
+- Reviewed the supplied Claude Design archive and recorded an approved WPF handoff with explicit capability boundaries.
+- Replaced the diagnostic console host with a real WPF application shell.
+- Implemented functional Dashboard, Activity, Diagnostics, and Settings surfaces with fail-closed Live-mode messaging.
+- Added keyboard commands, first-run routing to Settings, visible operation feedback, and Stop confirmation.
+- Fixed concurrent reading of the active daily log file and made log/status dates culture-invariant.
+- Added a regression test for reading Activity while the logger still owns the file.
 
 ## Validation Evidence
 
 - Debug build: passed with 0 warnings and 0 errors.
-- Debug tests: 98/98 passed (48 core, 42 infrastructure, 8 integration).
+- Debug tests: 99/99 passed (48 core, 43 infrastructure, 8 integration).
 - Release build: passed with 0 warnings and 0 errors.
-- Release tests: 98/98 passed (48 core, 42 infrastructure, 8 integration).
+- Release build: passed with 0 warnings and 0 errors.
+- Release tests: 99/99 passed (48 core, 43 infrastructure, 8 integration).
 - `dotnet format --verify-no-changes`: passed.
 - NuGet vulnerability audit from the preceding audit: no known vulnerable direct or transitive packages; dependencies were not changed in this iteration.
-- One baseline commit (`5ac98c5`) exists and no remote is configured. The current Codex changes remain uncommitted; generated output remains ignored.
+- Runtime WPF smoke test: passed against the real built executable; dashboard/settings rendered, accessibility tree exposed labeled controls, and Activity successfully read the active log.
+- Two local commits precede this increment (`5ac98c5`, `47c9c4c`); no remote is configured. The WPF increment remains uncommitted pending final validation.
 
 ## Remaining Product Work
 
-1. Review and approve the UI design produced from `UI_DESIGN_BRIEF.md`.
-2. Implement the WPF application shell, dashboard, setup wizard, settings, logs, diagnostics, recovery UI, and tray behavior.
-3. Implement real Claude Desktop conversation/input discovery and verified message delivery.
-4. Implement the equivalent ChatGPT Desktop/Codex automation.
-5. Validate real delivery, selector fallback, retries, app-version drift, and wrong-conversation prevention.
-6. Add real Windows notifications and single-instance behavior.
-7. Complete end-to-end tests with controlled desktop applications.
+1. Complete the multi-step setup wizard and field-level validation/pickers.
+2. Add the rich recovery timeline and guarded state-reset dialog.
+3. Add system tray, real Windows notifications, dark theme, and single-instance activation.
+4. Implement real Claude Desktop conversation/input discovery and verified message delivery.
+5. Implement the equivalent ChatGPT Desktop/Codex automation.
+6. Validate real delivery, selector fallback, retries, app-version drift, and wrong-conversation prevention.
+7. Complete end-to-end UI tests with controlled desktop applications.
 8. Add packaging, installer, operational documentation, and final release audit.
 
 ## Deferred Technical Debt
@@ -57,4 +65,4 @@ This approval applies to the backend corrective gate, not to the unfinished prod
 
 ## Next Gate
 
-No WPF visual implementation should begin until the design output has been reviewed against safety, accessibility, state coverage, and the available backend data contract. Real UI Automation remains a separate high-risk milestone after the dashboard/settings foundation.
+The next product gate is the complete Dry Run desktop experience (wizard, recovery, tray, notifications) without exposing unavailable controls as functional. Real UI Automation remains a separate high-risk milestone and cannot enable Live mode without positive delivery verification.

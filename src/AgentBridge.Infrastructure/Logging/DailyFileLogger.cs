@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using System.Globalization;
 
 namespace AgentBridge.Infrastructure.Logging;
 
@@ -27,7 +28,7 @@ internal sealed class DailyFileLogger(string categoryName, DailyFileLoggerProvid
             message = message[..maxLen] + "...[truncated]";
         }
 
-        var timestamp = DateTimeOffset.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+        var timestamp = DateTimeOffset.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture);
         var line = $"[{timestamp}] [{logLevel}] [{categoryName}] {message}";
         if (exception is not null)
         {

@@ -6,16 +6,18 @@
 > uses a different name and does not modify those files — it tracks the
 > backend build done in this chat session specifically.
 
-Date: 2026-09-02. Scope: backend-first phase (state machine, orchestrator,
+Date: 2026-09-02. Original scope: backend-first phase (state machine, orchestrator,
 file watcher, persistence, Git integration, retry/timeout, fake agent
-adapters, tests). The real dashboard UI and real UI Automation message
-delivery are explicitly deferred — see `FUTURE_UI.md` and `UI_AUTOMATION.md`.
+adapters, tests). **Update:** a first functional WPF shell now implements the
+Dashboard, Activity, Diagnostics, and Settings surfaces. Real UI Automation
+message delivery remains deferred — see `FUTURE_UI.md`, `UI_DESIGN_REVIEW.md`,
+and `UI_AUTOMATION.md`.
 
 ## Requirement status
 
 | Requirement | Status | Evidence |
 |---|---|---|
-| Windows GUI application exists | Deferred | `AgentBridge.App` is a console host this phase, by design |
+| Windows GUI application exists | Done (first increment) | `AgentBridge.App` is a WPF WinExe with a functional light-theme shell |
 | Project folder can be selected + validated | Done | `IProjectService.ValidateProjectPathAsync`; `ProjectServiceTests` |
 | Git repository can be validated (read-only) | Done | `GitService`; `GitServiceTests` (init/commit/modify scenarios) |
 | ClaudeResultReport.md / CodexPrompt.md monitored | Done | `FileWatcherService`; `FileWatcherServiceTests` |
@@ -31,8 +33,8 @@ delivery are explicitly deferred — see `FUTURE_UI.md` and `UI_AUTOMATION.md`.
 | Pause / Resume / Stop | Done | Including the Resume-picks-up-a-change-that-arrived-while-paused case, which surfaced and fixed a real bug (see `ARCHITECTURE.md`) |
 | Dry Run | Done | `InvokeAgentAsync` short-circuits before any adapter call when `DryRun=true`; state still advances so the whole pipeline is testable |
 | Logging | Done | `DailyFileLoggerProvider` (one file per UTC day), `FileLogService` for read-back; message-length safety cap |
-| GUI dashboard | Not started (deferred) | See `FUTURE_UI.md` |
-| Settings (persistence + validation) | Done (backend) | `JsonConfigurationService` + `SettingsService`; settings UI deferred |
+| GUI dashboard | Done (first increment) | Status, controls, cycle, Git, agents, protocol timestamps, and persistent Dry Run banner |
+| Settings (persistence + validation) | Done (first increment) | Atomic backend validation plus a functional WPF Settings surface |
 | System tray | Not started (deferred) | — |
 | Notifications | Backend abstraction only | `INotificationService` / `NullNotificationService`; real Windows toasts deferred |
 | Single-instance behavior | Not started (deferred) | UI-phase concern (mutex/named-pipe activation) |
@@ -50,15 +52,15 @@ delivery are explicitly deferred — see `FUTURE_UI.md` and `UI_AUTOMATION.md`.
 | Retry and timeout | Done | `ExponentialBackoffRetryPolicy` (bounded, testable via `FakeTimeProvider`); per-invocation timeout via linked `CancellationTokenSource` |
 | README / ARCHITECTURE / TROUBLESHOOTING / CONFIGURATION docs | Partial | `ARCHITECTURE.md`, `UI_AUTOMATION.md`, `FUTURE_UI.md` written this phase; `README.md`/`TROUBLESHOOTING.md`/`CONFIGURATION.md` not yet written |
 | Publishing process | Not started | Release-stage work, out of scope for this phase |
-| Release build succeeds | Verified (Debug + solution build) | `dotnet build AgentBridge.slnx` — 0 errors, 0 warnings after fixes; Release config not yet exercised |
+| Release build succeeds | Verified | Debug and Release solution builds both pass with 0 errors and 0 warnings |
 
 ## Test summary
 
 ```
-AgentBridge.Core.Tests:          38 passed, 0 failed
-AgentBridge.Infrastructure.Tests: 32 passed, 0 failed
+AgentBridge.Core.Tests:          48 passed, 0 failed
+AgentBridge.Infrastructure.Tests: 43 passed, 0 failed
 AgentBridge.Integration.Tests:     8 passed, 0 failed
-Total:                            78 passed, 0 failed
+Total:                            99 passed, 0 failed
 ```
 
 Run with: `dotnet test AgentBridge.slnx`
@@ -102,7 +104,8 @@ done — nothing above is a known-and-ignored defect.
   at the send step, by design (it never pretends to have sent something).
 - Conversation targeting (`ClaudeConversationIdentifier` /
   `CodexConversationIdentifier`) is accepted in configuration but unused.
-- No installer, no tray, no notifications beyond log lines, no dashboard.
+- No installer or tray; notifications still resolve to the null/log implementation.
+- The first WPF shell does not yet include the full wizard, dark theme, or rich recovery timeline.
 
 ## Recommended next phase
 

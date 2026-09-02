@@ -1,5 +1,6 @@
 using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
+using System.Globalization;
 
 namespace AgentBridge.Infrastructure.Logging;
 
@@ -43,7 +44,7 @@ public sealed class DailyFileLoggerProvider : ILoggerProvider
         {
             await foreach (var line in _channel.Reader.ReadAllAsync(CancellationToken.None).ConfigureAwait(false))
             {
-                var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
+                var today = DateTime.UtcNow.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
                 if (writer is null || today != currentDate)
                 {
                     writer?.Dispose();

@@ -1,0 +1,282 @@
+<Window x:Class="AgentBridge.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
+        Title="Agent Bridge" Width="1180" Height="760" MinWidth="620" MinHeight="480"
+        WindowStartupLocation="CenterScreen">
+    <Window.InputBindings>
+        <KeyBinding Key="F5" Command="{Binding RefreshCommand}" />
+        <KeyBinding Key="R" Modifiers="Control" Command="{Binding StartCommand}" />
+        <KeyBinding Key="P" Modifiers="Control" Command="{Binding PauseCommand}" />
+        <KeyBinding Key="S" Modifiers="Control+Shift" Command="{Binding StopCommand}" />
+    </Window.InputBindings>
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibility" />
+        <Style x:Key="NavButton" TargetType="Button">
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Margin" Value="0,0,0,4" />
+            <Setter Property="Padding" Value="12,8" />
+        </Style>
+        <Style x:Key="ValueText" TargetType="TextBlock">
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Margin" Value="0,2,0,10" />
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,0,0,1" Padding="16,10">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Text="Agent Bridge" FontSize="20" FontWeight="SemiBold" />
+                    <TextBlock Text="Supervised Claude ↔ Codex control surface" Foreground="{StaticResource SecondaryTextBrush}" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Margin="24,0" VerticalAlignment="Center">
+                    <TextBlock Text="STATE" Style="{StaticResource Caption}" />
+                    <TextBlock Text="{Binding StateText}" FontWeight="SemiBold" automation:AutomationProperties.LiveSetting="Polite" />
+                </StackPanel>
+                <StackPanel Grid.Column="2" Margin="12,0" VerticalAlignment="Center">
+                    <TextBlock Text="ITERATION" Style="{StaticResource Caption}" />
+                    <TextBlock Text="{Binding IterationText}" FontWeight="SemiBold" />
+                </StackPanel>
+                <StackPanel Grid.Column="3" Margin="12,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="GENERATED" Style="{StaticResource Caption}" />
+                    <TextBlock Text="{Binding GeneratedText}" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="1" Background="#FFF8E7" BorderBrush="#E6C66A" BorderThickness="0,0,0,1" Padding="16,8">
+            <DockPanel>
+                <Border DockPanel.Dock="Left" Background="#374151" CornerRadius="2" Padding="8,3" Margin="0,0,12,0">
+                    <TextBlock Text="{Binding ModeText}" Foreground="White" FontSize="11" FontWeight="Bold" />
+                </Border>
+                <TextBlock Text="{Binding ModeExplanation}" TextWrapping="Wrap" VerticalAlignment="Center" />
+            </DockPanel>
+        </Border>
+
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="176" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <Border Background="#ECECE9" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,0,1,0" Padding="12">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Bottom" Margin="0,16,0,0">
+                        <TextBlock Text="PROJECT" Style="{StaticResource Caption}" />
+                        <TextBlock Text="{Binding ProjectPath}" TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" />
+                    </StackPanel>
+                    <StackPanel>
+                        <Button Style="{StaticResource NavButton}" Content="▣  Dashboard" Command="{Binding NavigateCommand}" CommandParameter="Dashboard" />
+                        <Button Style="{StaticResource NavButton}" Content="≡  Activity" Command="{Binding NavigateCommand}" CommandParameter="Activity" />
+                        <Button Style="{StaticResource NavButton}" Content="◇  Diagnostics" Command="{Binding NavigateCommand}" CommandParameter="Diagnostics" />
+                        <Button Style="{StaticResource NavButton}" Content="□  Settings" Command="{Binding NavigateCommand}" CommandParameter="Settings" />
+                    </StackPanel>
+                </DockPanel>
+            </Border>
+
+            <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="16">
+                <Grid>
+                    <!-- Dashboard -->
+                    <StackPanel Visibility="{Binding IsDashboard, Converter={StaticResource BooleanToVisibility}}">
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                            <Button Content="▶ Start" Command="{Binding StartCommand}" automation:AutomationProperties.HelpText="Starts or safely resumes the bridge." />
+                            <Button Content="Ⅱ Pause" Command="{Binding PauseCommand}" automation:AutomationProperties.HelpText="Pauses processing while keeping the current iteration." />
+                            <Button Content="▶ Resume" Command="{Binding ResumeCommand}" />
+                            <Button Content="■ Stop" Command="{Binding StopCommand}" Foreground="{StaticResource ErrorBrush}" />
+                            <Button Content="↻ Refresh" Command="{Binding RefreshCommand}" />
+                        </StackPanel>
+
+                        <Border Style="{StaticResource PanelStyle}" Visibility="{Binding HasError, Converter={StaticResource BooleanToVisibility}}" BorderBrush="{StaticResource ErrorBrush}" Background="#FFF1F0" automation:AutomationProperties.LiveSetting="Assertive">
+                            <StackPanel>
+                                <TextBlock Text="The loop needs attention" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource ErrorBrush}" />
+                                <TextBlock Text="{Binding LastErrorText}" TextWrapping="Wrap" Margin="0,6,0,0" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource PanelStyle}">
+                            <StackPanel>
+                                <TextBlock Text="Cycle position" Style="{StaticResource SectionTitle}" />
+                                <UniformGrid Columns="8">
+                                    <TextBlock Text="Claude report" TextAlignment="Center" TextWrapping="Wrap" />
+                                    <TextBlock Text="Report detected" TextAlignment="Center" TextWrapping="Wrap" />
+                                    <TextBlock Text="Codex handoff" TextAlignment="Center" TextWrapping="Wrap" />
+                                    <TextBlock Text="Waiting Codex" TextAlignment="Center" TextWrapping="Wrap" />
+                                    <TextBlock Text="Codex processing" TextAlignment="Center" TextWrapping="Wrap" />
+                                    <TextBlock Text="Prompt detected" TextAlignment="Center" TextWrapping="Wrap" />
+                                    <TextBlock Text="Claude handoff" TextAlignment="Center" TextWrapping="Wrap" />
+                                    <TextBlock Text="Claude processing" TextAlignment="Center" TextWrapping="Wrap" />
+                                </UniformGrid>
+                                <ProgressBar Minimum="0" Maximum="12" Value="{Binding Status.CurrentState}" Height="4" Margin="0,10,0,0" IsHitTestVisible="False" />
+                            </StackPanel>
+                        </Border>
+
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Style="{StaticResource PanelStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="Status" Style="{StaticResource SectionTitle}" />
+                                    <TextBlock Text="{Binding StateText}" FontWeight="SemiBold" />
+                                    <TextBlock Text="{Binding Status.StatusText}" TextWrapping="Wrap" Margin="0,4,0,12" />
+                                    <TextBlock Text="LAST ACTION" Style="{StaticResource Caption}" />
+                                    <TextBlock Text="{Binding LastActionText}" Style="{StaticResource ValueText}" />
+                                    <TextBlock Text="LAST ERROR" Style="{StaticResource Caption}" />
+                                    <TextBlock Text="{Binding LastErrorText}" Style="{StaticResource ValueText}" />
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="1" Style="{StaticResource PanelStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="Git" Style="{StaticResource SectionTitle}" />
+                                    <TextBlock Text="BRANCH" Style="{StaticResource Caption}" />
+                                    <TextBlock Text="{Binding GitBranchText}" Style="{StaticResource ValueText}" FontFamily="Cascadia Mono, Consolas" />
+                                    <TextBlock Text="WORKING TREE" Style="{StaticResource Caption}" />
+                                    <TextBlock Text="{Binding GitTreeText}" Style="{StaticResource ValueText}" />
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Style="{StaticResource PanelStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="Agents" Style="{StaticResource SectionTitle}" />
+                                    <TextBlock Text="CLAUDE DESKTOP" Style="{StaticResource Caption}" />
+                                    <TextBlock Text="{Binding ClaudeStatusText}" Style="{StaticResource ValueText}" />
+                                    <TextBlock Text="CHATGPT DESKTOP (CODEX)" Style="{StaticResource Caption}" />
+                                    <TextBlock Text="{Binding CodexStatusText}" Style="{StaticResource ValueText}" />
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="1" Style="{StaticResource PanelStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="Protocol files" Style="{StaticResource SectionTitle}" />
+                                    <TextBlock Text="ClaudeResultReport.md" Style="{StaticResource Caption}" />
+                                    <TextBlock Text="{Binding ClaudeFileUpdateText}" Style="{StaticResource ValueText}" />
+                                    <TextBlock Text="CodexPrompt.md" Style="{StaticResource Caption}" />
+                                    <TextBlock Text="{Binding CodexFileUpdateText}" Style="{StaticResource ValueText}" />
+                                    <TextBlock Text="File contents are never shown here." Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" />
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                    </StackPanel>
+
+                    <!-- Activity -->
+                    <StackPanel Visibility="{Binding IsActivity, Converter={StaticResource BooleanToVisibility}}">
+                        <DockPanel Margin="0,0,0,12">
+                            <TextBlock Text="Activity" FontSize="20" FontWeight="SemiBold" />
+                            <Button DockPanel.Dock="Right" Content="Refresh" Command="{Binding LoadActivityCommand}" />
+                        </DockPanel>
+                        <TextBlock Text="Prompt and report bodies are redacted from application logs." Foreground="{StaticResource WarningBrush}" Margin="0,0,0,12" />
+                        <DataGrid ItemsSource="{Binding ActivityEntries}" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column" GridLinesVisibility="Horizontal" MinHeight="420">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Time" Binding="{Binding TimestampUtc, StringFormat={}{0:HH:mm:ss}}" Width="90" />
+                                <DataGridTextColumn Header="Severity" Binding="{Binding Level}" Width="90" />
+                                <DataGridTextColumn Header="Category" Binding="{Binding Category}" Width="180" />
+                                <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="*" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </StackPanel>
+
+                    <!-- Diagnostics -->
+                    <StackPanel Visibility="{Binding IsDiagnostics, Converter={StaticResource BooleanToVisibility}}">
+                        <TextBlock Text="Agent diagnostics" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,12" />
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Style="{StaticResource PanelStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="Claude Desktop" Style="{StaticResource SectionTitle}" />
+                                    <TextBlock Text="{Binding ClaudeDiagnostics}" TextWrapping="Wrap" FontFamily="Cascadia Mono, Consolas" Margin="0,0,0,12" />
+                                    <Button Content="Test connection" Command="{Binding TestClaudeCommand}" HorizontalAlignment="Left" />
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="1" Style="{StaticResource PanelStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="ChatGPT Desktop (Codex)" Style="{StaticResource SectionTitle}" />
+                                    <TextBlock Text="{Binding CodexDiagnostics}" TextWrapping="Wrap" FontFamily="Cascadia Mono, Consolas" Margin="0,0,0,12" />
+                                    <Button Content="Test connection" Command="{Binding TestCodexCommand}" HorizontalAlignment="Left" />
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                        <Border Style="{StaticResource PanelStyle}" Background="#FFF8E7">
+                            <TextBlock Text="Delivery receipt verification is not implemented. Live mode remains unavailable and the application will not represent an attempted send as delivered." TextWrapping="Wrap" />
+                        </Border>
+                    </StackPanel>
+
+                    <!-- Settings -->
+                    <StackPanel Visibility="{Binding IsSettings, Converter={StaticResource BooleanToVisibility}}">
+                        <TextBlock Text="Settings" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,12" />
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Style="{StaticResource PanelStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="Project and protocol files" Style="{StaticResource SectionTitle}" />
+                                    <TextBlock Text="PROJECT FOLDER" Style="{StaticResource Caption}" />
+                                    <TextBox Text="{Binding ProjectPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,10" />
+                                    <TextBlock Text="CLAUDE REPORT FILE" Style="{StaticResource Caption}" />
+                                    <TextBox Text="{Binding ClaudeReportFileName, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,10" />
+                                    <TextBlock Text="CODEX PROMPT FILE" Style="{StaticResource Caption}" />
+                                    <TextBox Text="{Binding CodexPromptFileName, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,0" />
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="1" Style="{StaticResource PanelStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="Automation safety" Style="{StaticResource SectionTitle}" />
+                                    <CheckBox IsChecked="True" IsEnabled="False" Content="Dry Run — simulate delivery" Margin="0,0,0,8" />
+                                    <CheckBox IsChecked="False" IsEnabled="False" Content="Allow Live mode" Margin="0,0,0,8" />
+                                    <TextBlock Text="Live mode is unavailable because no registered adapter can verify delivery. This reason remains visible by design." TextWrapping="Wrap" Foreground="{StaticResource WarningBrush}" />
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Style="{StaticResource PanelStyle}">
+                                <Grid Grid.IsSharedSizeScope="True">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="Labels" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
+                                    <TextBlock Text="Maximum iterations" VerticalAlignment="Center" Margin="0,0,16,8" />
+                                    <TextBox Grid.Column="1" Text="{Binding MaximumIterations}" Margin="0,0,0,8" />
+                                    <TextBlock Grid.Row="1" Text="Step timeout (seconds)" VerticalAlignment="Center" Margin="0,0,16,8" />
+                                    <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding AgentTimeoutSeconds}" Margin="0,0,0,8" />
+                                    <TextBlock Grid.Row="2" Text="Retries per step" VerticalAlignment="Center" Margin="0,0,16,8" />
+                                    <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding RetryCount}" Margin="0,0,0,8" />
+                                    <TextBlock Grid.Row="3" Text="File debounce (ms)" VerticalAlignment="Center" Margin="0,0,16,0" />
+                                    <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding FileDebounceMilliseconds}" />
+                                </Grid>
+                            </Border>
+                            <Border Grid.Column="1" Style="{StaticResource PanelStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="Notifications and startup" Style="{StaticResource SectionTitle}" />
+                                    <CheckBox IsChecked="{Binding NotificationsEnabled}" Content="Enable Windows notifications" Margin="0,0,0,10" />
+                                    <CheckBox IsChecked="{Binding StartMinimized}" Content="Start minimized" Margin="0,0,0,10" />
+                                    <TextBlock Text="Settings are validated and written as a single transaction. A partial save cannot occur." TextWrapping="Wrap" Foreground="{StaticResource SecondaryTextBrush}" />
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                        <Button Content="Save settings" Command="{Binding SaveSettingsCommand}" HorizontalAlignment="Right" Background="{StaticResource AccentBrush}" Foreground="White" />
+                    </StackPanel>
+                </Grid>
+            </ScrollViewer>
+        </Grid>
+
+        <Border Grid.Row="3" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,1,0,0" Padding="12,6">
+            <DockPanel>
+                <TextBlock Text="Service connected" Foreground="{StaticResource VerifiedBrush}" DockPanel.Dock="Left" />
+                <TextBlock Text="{Binding OperationMessage}" Foreground="{StaticResource SecondaryTextBrush}" TextAlignment="Right" />
+            </DockPanel>
+        </Border>
+    </Grid>
+</Window>

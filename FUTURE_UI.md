@@ -1,4 +1,8 @@
-# Future UI requirements
+# UI requirements and implementation status
+
+> The first WPF increment now exists in `AgentBridge.App`. Dashboard, Activity,
+> Diagnostics, and Settings are functional. Sections below remain the contract
+> for the still-deferred wizard, tray, rich recovery, and verified Live delivery.
 
 The backend built in this phase is fully independent of any presentation
 technology. This document is the contract the future dashboard/tray/settings/
@@ -126,8 +130,9 @@ the state machine.
   interface is stable; a `ToastNotificationService` implementation (likely via
   `Microsoft.Toolkit.Uwp.Notifications` or `CommunityToolkit.WinUI.Notifications`)
   is a UI-phase task.
-- System tray integration, start-minimized, start-on-Windows-startup.
+- System tray integration, start-minimized behavior, start-on-Windows-startup.
 - The setup wizard's UI Automation-dependent steps (3-9 in the original
   spec's sequence).
-- Any visual design — colors, layout, XAML controls. See `ARCHITECTURE.md`
-  for why this was deferred.
+- Dark-theme switching and the complete responsive/component variants from the
+  approved design. The implemented light WPF shell is documented in
+  `UI_DESIGN_REVIEW.md`.
