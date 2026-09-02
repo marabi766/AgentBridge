@@ -13,4 +13,14 @@ public interface IRetryPolicy
         Func<CancellationToken, Task> action,
         RetryOptions options,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Repeats a transient condition until it returns true or the configured
+    /// retry budget is exhausted. False results and non-cancellation exceptions
+    /// consume the same bounded retry budget.
+    /// </summary>
+    Task<bool> ExecuteUntilTrueAsync(
+        Func<CancellationToken, Task<bool>> condition,
+        RetryOptions options,
+        CancellationToken cancellationToken);
 }

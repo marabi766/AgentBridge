@@ -98,4 +98,77 @@ public class ExponentialBackoffRetryPolicyTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => task);
         Assert.Equal(5, attempts);
     }
+
+    [Fact]
+    public async Task ExecuteUntilTrue_FalseResult_UsesExactRetryBudgetThenReturnsFalse()
+    {
+        var time = new FakeTimeProvider();
+        var policy = CreatePolicy(time);
+        var attempts = 0;
+
+        var task = Task.Run(() => policy.ExecuteUntilTrueAsync(_ =>
+        {
+            attempts++;
+            return Task.FromResult(false);
+        }, new RetryOptions
+        {
+            MaxRetries = 2,
+            InitialDelay = TimeSpan.FromMilliseconds(10),
+            MaxDelay = TimeSpan.FromMilliseconds(20),
+        }, CancellationToken.None));
+
+        for (var i = 0; i < 10 && !task.IsCompleted; i++)
+        {
+            time.Advance(TimeSpan.FromSeconds(1));
+            await Task.Delay(10);
+        }
+
+        Assert.False(await task);
+        Assert.Equal(3, attempts);
+    }
+
+    [Fact]
+    public async Task ExecuteUntilTrue_EventuallyTrue_ReturnsImmediatelyAfterSuccess()
+    {
+        var time = new FakeTimeProvider();
+        var policy = CreatePolicy(time);
+        var attempts = 0;
+
+        var task = Task.Run(() => policy.ExecuteUntilTrueAsync(_ =>
+        {
+            attempts++;
+            return Task.FromResult(attempts == 3);
+        }, new RetryOptions
+        {
+            MaxRetries = 5,
+            InitialDelay = TimeSpan.FromMilliseconds(10),
+            MaxDelay = TimeSpan.FromMilliseconds(20),
+        }, CancellationToken.None));
+
+        for (var i = 0; i < 10 && !task.IsCompleted; i++)
+        {
+            time.Advance(TimeSpan.FromSeconds(1));
+            await Task.Delay(10);
+        }
+
+        Assert.True(await task);
+        Assert.Equal(3, attempts);
+    }
+
+    [Fact]
+    public async Task ExecuteUntilTrue_CancellationInterruptsPendingRetry()
+    {
+        var time = new FakeTimeProvider();
+        var policy = CreatePolicy(time);
+        using var cts = new CancellationTokenSource();
+
+        var task = policy.ExecuteUntilTrueAsync(
+            _ => Task.FromResult(false),
+            new RetryOptions { MaxRetries = 5, InitialDelay = TimeSpan.FromHours(1) },
+            cts.Token);
+
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => task);
+    }
 }

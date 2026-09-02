@@ -32,12 +32,34 @@ public sealed class SettingsServiceTests : IDisposable
         var service = CreateService();
         var config = BridgeConfiguration.CreateDefault() with
         {
-            ProjectPath = _dir, ClaudeReportFileName = "same.md", CodexPromptFileName = "same.md",
+            ProjectPath = _dir,
+            ClaudeReportFileName = "same.md",
+            CodexPromptFileName = "same.md",
         };
 
         var result = await service.ValidateAsync(config, CancellationToken.None);
 
         Assert.False(result.IsValid);
+    }
+
+    [Theory]
+    [InlineData("../outside.md")]
+    [InlineData("..\\outside.md")]
+    [InlineData("nested/report.md")]
+    [InlineData("C:\\outside.md")]
+    public async Task Validate_ProtocolFileNameWithPath_IsRejected(string unsafeName)
+    {
+        var service = CreateService();
+        var config = BridgeConfiguration.CreateDefault() with
+        {
+            ProjectPath = _dir,
+            ClaudeReportFileName = unsafeName,
+        };
+
+        var result = await service.ValidateAsync(config, CancellationToken.None);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Contains("simple file name"));
     }
 
     [Theory]

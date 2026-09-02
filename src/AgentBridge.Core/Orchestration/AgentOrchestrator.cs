@@ -96,13 +96,35 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
 
             _configuration = await _configService.LoadAsync(cancellationToken).ConfigureAwait(false);
 
-            var validation = await _projectService.ValidateProjectPathAsync(_configuration.ProjectPath, cancellationToken).ConfigureAwait(false);
+            var validation = await _projectService.ValidateProjectAsync(_configuration, cancellationToken).ConfigureAwait(false);
             if (!validation.IsValid)
             {
                 SetError($"Project path invalid: {string.Join("; ", validation.Errors)}");
                 _stateMachine.ForceState(BridgeState.Error, null);
                 PublishStatus();
                 return;
+            }
+
+            if (!_configuration.DryRun)
+            {
+                var unsupportedAdapters = new[]
+                {
+                    _agentAdapterProvider.GetAdapter(AgentRole.Claude),
+                    _agentAdapterProvider.GetAdapter(AgentRole.Codex),
+                }
+                .Where(adapter => !adapter.SupportsRealMessageDelivery)
+                .Select(adapter => adapter.Name)
+                .ToArray();
+
+                if (unsupportedAdapters.Length > 0)
+                {
+                    SetError(
+                        "A real run was requested, but these adapters cannot verify real message delivery: " +
+                        string.Join(", ", unsupportedAdapters) + ". Enable Dry Run or configure delivery-capable adapters.");
+                    _stateMachine.ForceState(BridgeState.Error, null);
+                    PublishStatus();
+                    return;
+                }
             }
 
             var loadResult = await _stateStore.LoadAsync(cancellationToken).ConfigureAwait(false);
@@ -213,17 +235,19 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
+        // Cancellation must happen before waiting for the action lock. An agent
+        // invocation holds that lock, so cancelling only after acquiring it would
+        // make Stop wait for the full agent timeout.
+        RequestRuntimeCancellation();
         await _actionLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            StopRuntimeResources();
+
             if (_stateMachine.Current == BridgeState.Stopped)
             {
                 return;
             }
-
-            _runCts?.Cancel();
-            _claudeWatcher?.Stop();
-            _codexWatcher?.Stop();
 
             Transition(BridgeState.Stopped, "Stopped by user");
             _lastAction = "Stopped by user";
@@ -385,6 +409,10 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
 
             await InvokeCodexAsync(CancellationToken.None).ConfigureAwait(false);
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            _logger.LogInformation("Claude report processing cancelled because the bridge is stopping.");
+        }
         catch (Exception ex)
         {
             await HandleUnexpectedErrorAsync(ex).ConfigureAwait(false);
@@ -432,6 +460,10 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             await PersistStateAsync(CancellationToken.None).ConfigureAwait(false);
 
             await InvokeClaudeAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            _logger.LogInformation("Codex prompt processing cancelled because the bridge is stopping.");
         }
         catch (Exception ex)
         {
@@ -531,7 +563,8 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
 
         try
         {
-            var running = await _retryPolicy.ExecuteAsync(t => adapter.IsApplicationRunningAsync(t), retryOptions, token).ConfigureAwait(false);
+            var running = await _retryPolicy.ExecuteUntilTrueAsync(
+                t => adapter.IsApplicationRunningAsync(t), retryOptions, token).ConfigureAwait(false);
             if (!running)
             {
                 var autoLaunch = adapter.Role == AgentRole.Claude ? _configuration.AutoLaunchClaude : _configuration.AutoLaunchChatGpt;
@@ -540,12 +573,20 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
                     _logger.LogWarning("{Agent} is not running and auto-launch is disabled or failed.", adapter.Name);
                     return false;
                 }
+
+                running = await _retryPolicy.ExecuteUntilTrueAsync(
+                    t => adapter.IsApplicationRunningAsync(t), retryOptions, token).ConfigureAwait(false);
+                if (!running)
+                {
+                    _logger.LogWarning("{Agent} did not become available after launch.", adapter.Name);
+                    return false;
+                }
             }
 
-            if (!await _retryPolicy.ExecuteAsync(t => adapter.ActivateAsync(t), retryOptions, token).ConfigureAwait(false)) return false;
-            if (!await _retryPolicy.ExecuteAsync(t => adapter.IsReadyAsync(t), retryOptions, token).ConfigureAwait(false)) return false;
-            if (!await _retryPolicy.ExecuteAsync(t => adapter.FindConversationAsync(t), retryOptions, token).ConfigureAwait(false)) return false;
-            if (!await _retryPolicy.ExecuteAsync(t => adapter.FindInputBoxAsync(t), retryOptions, token).ConfigureAwait(false)) return false;
+            if (!await _retryPolicy.ExecuteUntilTrueAsync(t => adapter.ActivateAsync(t), retryOptions, token).ConfigureAwait(false)) return false;
+            if (!await _retryPolicy.ExecuteUntilTrueAsync(t => adapter.IsReadyAsync(t), retryOptions, token).ConfigureAwait(false)) return false;
+            if (!await _retryPolicy.ExecuteUntilTrueAsync(t => adapter.FindConversationAsync(t), retryOptions, token).ConfigureAwait(false)) return false;
+            if (!await _retryPolicy.ExecuteUntilTrueAsync(t => adapter.FindInputBoxAsync(t), retryOptions, token).ConfigureAwait(false)) return false;
 
             return await adapter.SendMessageAsync(message, token).ConfigureAwait(false);
         }
@@ -559,6 +600,7 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
     private async Task StopForMaxIterationsAsync(CancellationToken cancellationToken)
     {
         _lastAction = $"Maximum iterations ({_configuration.MaximumIterations}) reached.";
+        StopRuntimeResources();
         Transition(BridgeState.Stopped, _lastAction);
         await PersistStateAsync(cancellationToken).ConfigureAwait(false);
         await NotifyAsync("Agent Bridge — stopped", _lastAction, NotificationLevel.Warning, cancellationToken).ConfigureAwait(false);
@@ -596,8 +638,7 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
 
         var safeToResume = snapshot.CurrentState is
             BridgeState.Idle or BridgeState.Stopped or BridgeState.Paused or
-            BridgeState.WaitingForClaudeReport or BridgeState.WaitingForCodex or
-            BridgeState.WaitingForCodexPrompt or BridgeState.WaitingForClaude or
+            BridgeState.WaitingForClaudeReport or BridgeState.WaitingForCodexPrompt or
             BridgeState.Error;
 
         if (!safeToResume)
@@ -630,6 +671,31 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
     {
         _lastError = message;
         _logger.LogError("{Message}", message);
+    }
+
+    private void StopRuntimeResources()
+    {
+        var runCts = Interlocked.Exchange(ref _runCts, null);
+        if (runCts is not null)
+        {
+            runCts.Cancel();
+            runCts.Dispose();
+        }
+
+        _claudeWatcher?.Stop();
+        _codexWatcher?.Stop();
+    }
+
+    private void RequestRuntimeCancellation()
+    {
+        try
+        {
+            Volatile.Read(ref _runCts)?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // A concurrent stop/dispose already completed cancellation.
+        }
     }
 
     private void Transition(BridgeState to, string reason)
@@ -752,8 +818,7 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             return;
         }
 
-        _runCts?.Cancel();
-        _runCts?.Dispose();
+        StopRuntimeResources();
         _claudeWatcher?.Dispose();
         _codexWatcher?.Dispose();
         _actionLock.Dispose();

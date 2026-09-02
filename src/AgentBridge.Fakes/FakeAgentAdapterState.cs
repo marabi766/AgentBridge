@@ -31,7 +31,17 @@ public sealed class FakeAgentAdapterState
 
     public List<string> SentMessages { get; } = [];
 
-    public int SendMessageCallCount => SentMessages.Count;
+    public int IsApplicationRunningCallCount { get; internal set; }
+
+    public int IsReadyCallCount { get; internal set; }
+
+    public int ActivateCallCount { get; internal set; }
+
+    public int FindConversationCallCount { get; internal set; }
+
+    public int FindInputBoxCallCount { get; internal set; }
+
+    public int SendMessageCallCount { get; internal set; }
 
     public void Reset()
     {
@@ -44,6 +54,12 @@ public sealed class FakeAgentAdapterState
         SendMessageSucceeds = true;
         SendMessageDelay = TimeSpan.Zero;
         Status = AgentStatus.Ready;
+        IsApplicationRunningCallCount = 0;
+        IsReadyCallCount = 0;
+        ActivateCallCount = 0;
+        FindConversationCallCount = 0;
+        FindInputBoxCallCount = 0;
+        SendMessageCallCount = 0;
         SentMessages.Clear();
     }
 }

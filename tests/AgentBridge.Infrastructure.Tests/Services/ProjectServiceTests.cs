@@ -51,6 +51,47 @@ public sealed class ProjectServiceTests : IDisposable
         Assert.Equal(Path.Combine(_dir, "CodexPrompt.md"), service.GetCodexPromptFilePath(config));
     }
 
+    [Theory]
+    [InlineData("../outside.md")]
+    [InlineData("..\\outside.md")]
+    [InlineData("nested/report.md")]
+    [InlineData("nested\\report.md")]
+    [InlineData("C:\\outside.md")]
+    public async Task ValidateProjectAsync_ProtocolPathInsteadOfSimpleFileName_IsRejected(string unsafeName)
+    {
+        var service = CreateService();
+        var config = BridgeConfiguration.CreateDefault() with
+        {
+            ProjectPath = _dir,
+            ClaudeReportFileName = unsafeName,
+        };
+
+        var result = await service.ValidateProjectAsync(config, CancellationToken.None);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Contains("simple file name"));
+        Assert.Throws<ArgumentException>(() => service.GetClaudeReportFilePath(config));
+    }
+
+    [Fact]
+    public async Task ValidateProjectAsync_UsesConfiguredProtocolFileNames()
+    {
+        await File.WriteAllTextAsync(Path.Combine(_dir, "custom-report.md"), "report");
+        await File.WriteAllTextAsync(Path.Combine(_dir, "custom-prompt.md"), "prompt");
+        var service = CreateService();
+        var config = BridgeConfiguration.CreateDefault() with
+        {
+            ProjectPath = _dir,
+            ClaudeReportFileName = "custom-report.md",
+            CodexPromptFileName = "custom-prompt.md",
+        };
+
+        var result = await service.ValidateProjectAsync(config, CancellationToken.None);
+
+        Assert.True(result.ClaudeReportFileExists);
+        Assert.True(result.CodexPromptFileExists);
+    }
+
     public void Dispose()
     {
         try

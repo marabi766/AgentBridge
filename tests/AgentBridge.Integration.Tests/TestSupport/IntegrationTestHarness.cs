@@ -31,9 +31,11 @@ public sealed class IntegrationTestHarness : IDisposable
 
     public BridgeConfiguration Configuration { get; }
 
-    public FakeClaudeAdapter ClaudeAdapter { get; } = new();
+    public FakeAgentAdapterBase ClaudeAdapter { get; } =
+        new DeliveryCapableIntegrationAdapter("Claude integration adapter", AgentRole.Claude);
 
-    public FakeCodexAdapter CodexAdapter { get; } = new();
+    public FakeAgentAdapterBase CodexAdapter { get; } =
+        new DeliveryCapableIntegrationAdapter("Codex integration adapter", AgentRole.Codex);
 
     public AgentOrchestrator Orchestrator { get; }
 
@@ -231,7 +233,7 @@ internal sealed class StaticConfigurationService(BridgeConfiguration configurati
     public Task SaveAsync(BridgeConfiguration configuration, CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
-internal sealed class SimpleAgentAdapterProvider(FakeClaudeAdapter claude, FakeCodexAdapter codex) : IAgentAdapterProvider
+internal sealed class SimpleAgentAdapterProvider(IAgentAdapter claude, IAgentAdapter codex) : IAgentAdapterProvider
 {
     public IAgentAdapter GetAdapter(AgentRole role) => role switch
     {
@@ -239,4 +241,10 @@ internal sealed class SimpleAgentAdapterProvider(FakeClaudeAdapter claude, FakeC
         AgentRole.Codex => codex,
         _ => throw new ArgumentOutOfRangeException(nameof(role)),
     };
+}
+
+internal sealed class DeliveryCapableIntegrationAdapter(string name, AgentRole role)
+    : FakeAgentAdapterBase(name, role)
+{
+    public override bool SupportsRealMessageDelivery => true;
 }

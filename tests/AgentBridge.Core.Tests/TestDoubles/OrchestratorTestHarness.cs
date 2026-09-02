@@ -24,9 +24,9 @@ public sealed class OrchestratorTestHarness
 
     public ControllableFileWatcherFactory WatcherFactory { get; } = new();
 
-    public FakeClaudeAdapter ClaudeAdapter { get; } = new();
+    public FakeAgentAdapterBase ClaudeAdapter { get; }
 
-    public FakeCodexAdapter CodexAdapter { get; } = new();
+    public FakeAgentAdapterBase CodexAdapter { get; }
 
     public StubGitService GitService { get; } = new();
 
@@ -36,8 +36,15 @@ public sealed class OrchestratorTestHarness
 
     public AgentOrchestrator Orchestrator { get; }
 
-    public OrchestratorTestHarness(BridgeConfiguration? configuration = null)
+    public OrchestratorTestHarness(BridgeConfiguration? configuration = null, bool simulationOnlyAdapters = false)
     {
+        ClaudeAdapter = simulationOnlyAdapters
+            ? new FakeClaudeAdapter()
+            : new DeliveryCapableTestAdapter("Claude test adapter", AgentRole.Claude);
+        CodexAdapter = simulationOnlyAdapters
+            ? new FakeCodexAdapter()
+            : new DeliveryCapableTestAdapter("Codex test adapter", AgentRole.Codex);
+
         Configuration = configuration ?? BridgeConfiguration.CreateDefault() with
         {
             ProjectPath = "C:/fake/project",
@@ -96,4 +103,10 @@ public sealed class OrchestratorTestHarness
 
         throw new TimeoutException($"Expected state {expected} but last observed {status.CurrentState} after waiting.");
     }
+}
+
+internal sealed class DeliveryCapableTestAdapter(string name, AgentRole role)
+    : FakeAgentAdapterBase(name, role)
+{
+    public override bool SupportsRealMessageDelivery => true;
 }

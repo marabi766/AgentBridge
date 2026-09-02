@@ -5,8 +5,16 @@ namespace AgentBridge.Infrastructure.Services;
 
 public sealed class ProjectService(IGitService gitService) : IProjectService
 {
-    public async Task<ProjectValidationResult> ValidateProjectPathAsync(string projectPath, CancellationToken cancellationToken)
+    public Task<ProjectValidationResult> ValidateProjectPathAsync(string projectPath, CancellationToken cancellationToken) =>
+        ValidateProjectAsync(
+            BridgeConfiguration.CreateDefault() with { ProjectPath = projectPath },
+            cancellationToken);
+
+    public async Task<ProjectValidationResult> ValidateProjectAsync(
+        BridgeConfiguration configuration,
+        CancellationToken cancellationToken)
     {
+        var projectPath = configuration.ProjectPath;
         var errors = new List<string>();
         var warnings = new List<string>();
 
@@ -41,10 +49,15 @@ public sealed class ProjectService(IGitService gitService) : IProjectService
             }
         }
 
-        var claudeReportPath = Path.Combine(projectPath, "ClaudeResultReport.md");
-        var codexPromptPath = Path.Combine(projectPath, "CodexPrompt.md");
-        var claudeReportExists = pathExists && File.Exists(claudeReportPath);
-        var codexPromptExists = pathExists && File.Exists(codexPromptPath);
+        var claudeNameError = GetProtocolFileNameValidationError(configuration.ClaudeReportFileName, "Claude report");
+        var codexNameError = GetProtocolFileNameValidationError(configuration.CodexPromptFileName, "Codex prompt");
+        if (claudeNameError is not null) errors.Add(claudeNameError);
+        if (codexNameError is not null) errors.Add(codexNameError);
+
+        var claudeReportExists = pathExists && claudeNameError is null &&
+            File.Exists(ResolveProtocolFilePath(projectPath, configuration.ClaudeReportFileName));
+        var codexPromptExists = pathExists && codexNameError is null &&
+            File.Exists(ResolveProtocolFilePath(projectPath, configuration.CodexPromptFileName));
 
         if (pathExists && !claudeReportExists)
         {
@@ -58,7 +71,7 @@ public sealed class ProjectService(IGitService gitService) : IProjectService
 
         return new ProjectValidationResult
         {
-            IsValid = pathExists,
+            IsValid = pathExists && errors.Count == 0,
             PathExists = pathExists,
             IsGitRepository = isGitRepository,
             ClaudeReportFileExists = claudeReportExists,
@@ -69,8 +82,45 @@ public sealed class ProjectService(IGitService gitService) : IProjectService
     }
 
     public string GetClaudeReportFilePath(BridgeConfiguration configuration) =>
-        Path.Combine(configuration.ProjectPath, configuration.ClaudeReportFileName);
+        ResolveProtocolFilePath(configuration.ProjectPath, configuration.ClaudeReportFileName);
 
     public string GetCodexPromptFilePath(BridgeConfiguration configuration) =>
-        Path.Combine(configuration.ProjectPath, configuration.CodexPromptFileName);
+        ResolveProtocolFilePath(configuration.ProjectPath, configuration.CodexPromptFileName);
+
+    internal static string? GetProtocolFileNameValidationError(string? fileName, string label)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            return $"{label} file name cannot be empty.";
+        }
+
+        if (Path.IsPathRooted(fileName) ||
+            !string.Equals(Path.GetFileName(fileName), fileName, StringComparison.Ordinal) ||
+            fileName is "." or ".." ||
+            fileName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        {
+            return $"{label} file name must be a simple file name in the project root, not a path: {fileName}";
+        }
+
+        return null;
+    }
+
+    private static string ResolveProtocolFilePath(string projectPath, string fileName)
+    {
+        var error = GetProtocolFileNameValidationError(fileName, "Protocol");
+        if (error is not null)
+        {
+            throw new ArgumentException(error, nameof(fileName));
+        }
+
+        var root = Path.GetFullPath(projectPath);
+        var candidate = Path.GetFullPath(Path.Combine(root, fileName));
+        var relative = Path.GetRelativePath(root, candidate);
+        if (Path.IsPathRooted(relative) || relative == ".." || relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+        {
+            throw new ArgumentException("Protocol file must remain inside the configured project root.", nameof(fileName));
+        }
+
+        return candidate;
+    }
 }

@@ -1,10 +1,9 @@
 using AgentBridge.Abstractions.Interfaces;
 using AgentBridge.Abstractions.Models;
-using AgentBridge.Fakes;
 
 namespace AgentBridge.Core.Tests.TestDoubles;
 
-public sealed class SimpleAgentAdapterProvider(FakeClaudeAdapter claude, FakeCodexAdapter codex) : IAgentAdapterProvider
+public sealed class SimpleAgentAdapterProvider(IAgentAdapter claude, IAgentAdapter codex) : IAgentAdapterProvider
 {
     public IAgentAdapter GetAdapter(AgentRole role) => role switch
     {

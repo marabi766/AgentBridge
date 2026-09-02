@@ -15,6 +15,13 @@ public interface IAgentAdapter
 
     AgentRole Role { get; }
 
+    /// <summary>
+    /// True only when this adapter has a real, verifiable message-delivery
+    /// implementation. Simulation adapters and incomplete desktop adapters must
+    /// return false so a non-dry run fails closed.
+    /// </summary>
+    bool SupportsRealMessageDelivery { get; }
+
     Task<bool> IsApplicationRunningAsync(CancellationToken cancellationToken);
 
     Task<bool> LaunchApplicationAsync(CancellationToken cancellationToken);

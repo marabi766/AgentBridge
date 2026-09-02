@@ -48,4 +48,46 @@ public sealed class ExponentialBackoffRetryPolicy(TimeProvider timeProvider, ILo
             return null;
         }, options, cancellationToken).ConfigureAwait(false);
     }
+
+    public async Task<bool> ExecuteUntilTrueAsync(
+        Func<CancellationToken, Task<bool>> condition,
+        RetryOptions options,
+        CancellationToken cancellationToken)
+    {
+        var attempt = 0;
+        var delay = options.InitialDelay;
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                if (await condition(cancellationToken).ConfigureAwait(false))
+                {
+                    return true;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Transient condition attempt {Attempt} failed.", attempt + 1);
+            }
+
+            if (attempt >= options.MaxRetries)
+            {
+                return false;
+            }
+
+            attempt++;
+            logger.LogDebug(
+                "Condition not satisfied; retry {Attempt}/{MaxRetries} after {DelayMs}ms.",
+                attempt, options.MaxRetries, delay.TotalMilliseconds);
+            await Task.Delay(delay, timeProvider, cancellationToken).ConfigureAwait(false);
+            delay = TimeSpan.FromMilliseconds(
+                Math.Min(delay.TotalMilliseconds * options.BackoffMultiplier, options.MaxDelay.TotalMilliseconds));
+        }
+    }
 }

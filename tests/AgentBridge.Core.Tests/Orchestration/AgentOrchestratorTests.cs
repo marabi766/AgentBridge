@@ -6,6 +6,45 @@ namespace AgentBridge.Core.Tests.Orchestration;
 public class AgentOrchestratorTests
 {
     [Fact]
+    public async Task Start_NonDryRunWithSimulationAdapters_FailsClosedBeforeStartingWatchers()
+    {
+        var config = BridgeConfiguration.CreateDefault() with
+        {
+            ProjectPath = "C:/fake/project",
+            DryRun = false,
+        };
+        var harness = new OrchestratorTestHarness(config, simulationOnlyAdapters: true);
+
+        await harness.StartAsync();
+
+        var status = await harness.Orchestrator.GetStatusAsync(CancellationToken.None);
+        Assert.Equal(BridgeState.Error, status.CurrentState);
+        Assert.Contains("cannot verify real message delivery", status.LastError);
+        Assert.False(harness.WatcherFactory.WasCreated(harness.ClaudeReportPath));
+        Assert.False(harness.WatcherFactory.WasCreated(harness.CodexPromptPath));
+        Assert.Equal(0, harness.ClaudeAdapter.State.SendMessageCallCount);
+        Assert.Equal(0, harness.CodexAdapter.State.SendMessageCallCount);
+    }
+
+    [Fact]
+    public async Task Start_DryRunWithSimulationAdapters_RemainsSupported()
+    {
+        var config = BridgeConfiguration.CreateDefault() with
+        {
+            ProjectPath = "C:/fake/project",
+            DryRun = true,
+        };
+        var harness = new OrchestratorTestHarness(config, simulationOnlyAdapters: true);
+
+        await harness.StartAsync();
+
+        var status = await harness.Orchestrator.GetStatusAsync(CancellationToken.None);
+        Assert.Equal(BridgeState.WaitingForClaudeReport, status.CurrentState);
+        Assert.True(harness.ClaudeWatcher.IsRunning);
+        Assert.True(harness.CodexWatcher.IsRunning);
+    }
+
+    [Fact]
     public async Task Start_WithInvalidProjectPath_TransitionsToError()
     {
         var harness = new OrchestratorTestHarness();
@@ -125,7 +164,11 @@ public class AgentOrchestratorTests
     {
         var config = BridgeConfiguration.CreateDefault() with
         {
-            ProjectPath = "C:/fake", DryRun = false, MaximumIterations = 1, AgentTimeoutSeconds = 2, RetryCount = 0,
+            ProjectPath = "C:/fake",
+            DryRun = false,
+            MaximumIterations = 1,
+            AgentTimeoutSeconds = 2,
+            RetryCount = 0,
         };
         var harness = new OrchestratorTestHarness(config);
         await harness.StartAsync();
@@ -140,6 +183,17 @@ public class AgentOrchestratorTests
 
         Assert.Equal(1, status.CurrentIteration);
         Assert.Contains("Maximum iterations", status.LastAction);
+        Assert.False(harness.ClaudeWatcher.IsRunning);
+        Assert.False(harness.CodexWatcher.IsRunning);
+
+        await harness.Orchestrator.StopAsync(CancellationToken.None);
+        Assert.False(harness.ClaudeWatcher.IsRunning);
+        Assert.False(harness.CodexWatcher.IsRunning);
+
+        await harness.StartAsync();
+        Assert.Equal(
+            BridgeState.WaitingForClaudeReport,
+            (await harness.Orchestrator.GetStatusAsync(CancellationToken.None)).CurrentState);
     }
 
     [Fact]
@@ -182,9 +236,43 @@ public class AgentOrchestratorTests
     }
 
     [Fact]
+    public async Task Stop_CancelsAnInFlightAgentInvocationPromptly()
+    {
+        var config = BridgeConfiguration.CreateDefault() with
+        {
+            ProjectPath = "C:/fake/project",
+            DryRun = false,
+            AgentTimeoutSeconds = 30,
+            RetryCount = 0,
+        };
+        var harness = new OrchestratorTestHarness(config);
+        harness.CodexAdapter.State.SendMessageDelay = TimeSpan.FromSeconds(20);
+        await harness.StartAsync();
+        harness.ClaudeWatcher.RaiseStableChange("r1", "h1");
+        await harness.WaitForStateAsync(BridgeState.CodexProcessing);
+
+        var stopTask = harness.Orchestrator.StopAsync(CancellationToken.None);
+        await stopTask.WaitAsync(TimeSpan.FromSeconds(2));
+
+        var status = await harness.Orchestrator.GetStatusAsync(CancellationToken.None);
+        Assert.Equal(BridgeState.Stopped, status.CurrentState);
+        Assert.False(harness.ClaudeWatcher.IsRunning);
+        Assert.False(harness.CodexWatcher.IsRunning);
+        Assert.Empty(harness.CodexAdapter.State.SentMessages);
+    }
+
+    [Fact]
     public async Task CodexSendFailure_TransitionsToError_WithDescriptiveLastError()
     {
-        var harness = new OrchestratorTestHarness();
+        var config = BridgeConfiguration.CreateDefault() with
+        {
+            ProjectPath = "C:/fake/project",
+            DryRun = false,
+            RetryCount = 3,
+            RetryInitialDelayMilliseconds = 1,
+            RetryMaxDelayMilliseconds = 2,
+        };
+        var harness = new OrchestratorTestHarness(config);
         harness.CodexAdapter.State.SendMessageSucceeds = false;
         await harness.StartAsync();
 
@@ -193,6 +281,31 @@ public class AgentOrchestratorTests
         var status = await harness.WaitForStateAsync(BridgeState.Error);
         Assert.NotNull(status.LastError);
         Assert.Contains("Codex", status.LastError);
+        Assert.Equal(1, harness.CodexAdapter.State.SendMessageCallCount);
+    }
+
+    [Fact]
+    public async Task ReadinessFalse_IsRetriedWithinBudget_AndMessageIsNeverSent()
+    {
+        var config = BridgeConfiguration.CreateDefault() with
+        {
+            ProjectPath = "C:/fake/project",
+            DryRun = false,
+            RetryCount = 2,
+            RetryInitialDelayMilliseconds = 1,
+            RetryMaxDelayMilliseconds = 2,
+        };
+        var harness = new OrchestratorTestHarness(config);
+        harness.CodexAdapter.State.IsReady = false;
+        await harness.StartAsync();
+
+        harness.ClaudeWatcher.RaiseStableChange("r1", "h1");
+
+        var status = await harness.WaitForStateAsync(BridgeState.Error);
+        Assert.Contains("Codex", status.LastError);
+        Assert.Equal(3, harness.CodexAdapter.State.IsReadyCallCount);
+        Assert.Equal(0, harness.CodexAdapter.State.FindConversationCallCount);
+        Assert.Equal(0, harness.CodexAdapter.State.SendMessageCallCount);
     }
 
     [Fact]
@@ -200,7 +313,11 @@ public class AgentOrchestratorTests
     {
         var config = BridgeConfiguration.CreateDefault() with
         {
-            ProjectPath = "C:/fake", DryRun = false, MaximumIterations = 50, AgentTimeoutSeconds = 1, RetryCount = 0,
+            ProjectPath = "C:/fake",
+            DryRun = false,
+            MaximumIterations = 50,
+            AgentTimeoutSeconds = 1,
+            RetryCount = 0,
         };
         var harness = new OrchestratorTestHarness(config);
         harness.CodexAdapter.State.SendMessageDelay = TimeSpan.FromSeconds(3);
@@ -250,12 +367,41 @@ public class AgentOrchestratorTests
         Assert.False(harness.WatcherFactory.WasCreated(harness.ClaudeReportPath));
     }
 
+    [Theory]
+    [InlineData(BridgeState.WaitingForCodex)]
+    [InlineData(BridgeState.WaitingForClaude)]
+    public async Task PendingPreActionStateOnRestart_FailsClosedWithoutInvokingAgent(BridgeState persistedState)
+    {
+        var harness = new OrchestratorTestHarness();
+        harness.StateStore.SeedLoaded(new BridgeStateSnapshot
+        {
+            CurrentState = persistedState,
+            CurrentIteration = 3,
+            MaximumIterations = 50,
+            UpdatedAtUtc = DateTimeOffset.UtcNow,
+        });
+
+        await harness.StartAsync();
+
+        var status = await harness.Orchestrator.GetStatusAsync(CancellationToken.None);
+        Assert.Equal(BridgeState.Error, status.CurrentState);
+        Assert.Contains("Ambiguous state", status.LastError);
+        Assert.Equal(0, harness.ClaudeAdapter.State.SendMessageCallCount);
+        Assert.Equal(0, harness.CodexAdapter.State.SendMessageCallCount);
+        Assert.False(harness.WatcherFactory.WasCreated(harness.ClaudeReportPath));
+        Assert.False(harness.WatcherFactory.WasCreated(harness.CodexPromptPath));
+    }
+
     [Fact]
     public async Task DryRun_AdvancesStateButNeverActuallyCallsSendMessage()
     {
         var config = BridgeConfiguration.CreateDefault() with
         {
-            ProjectPath = "C:/fake", DryRun = true, MaximumIterations = 50, AgentTimeoutSeconds = 2, RetryCount = 0,
+            ProjectPath = "C:/fake",
+            DryRun = true,
+            MaximumIterations = 50,
+            AgentTimeoutSeconds = 2,
+            RetryCount = 0,
         };
         var harness = new OrchestratorTestHarness(config);
         await harness.StartAsync();

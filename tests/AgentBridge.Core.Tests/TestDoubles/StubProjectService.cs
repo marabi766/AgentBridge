@@ -20,6 +20,9 @@ public sealed class StubProjectService : IProjectService
             Errors = Errors,
         });
 
+    public Task<ProjectValidationResult> ValidateProjectAsync(BridgeConfiguration configuration, CancellationToken cancellationToken) =>
+        ValidateProjectPathAsync(configuration.ProjectPath, cancellationToken);
+
     public string GetClaudeReportFilePath(BridgeConfiguration configuration) =>
         Path.Combine(configuration.ProjectPath, configuration.ClaudeReportFileName);
 

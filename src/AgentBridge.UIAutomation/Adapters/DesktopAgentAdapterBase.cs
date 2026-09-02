@@ -45,6 +45,8 @@ public abstract class DesktopAgentAdapterBase : IAgentAdapter, IDisposable
 
     public AgentRole Role { get; }
 
+    public bool SupportsRealMessageDelivery => false;
+
     protected string ProcessName { get; }
 
     protected string? ExecutablePath { get; }

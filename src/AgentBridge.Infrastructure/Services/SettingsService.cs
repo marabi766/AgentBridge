@@ -21,15 +21,10 @@ public sealed class SettingsService(IConfigurationService configurationService) 
             errors.Add($"Project path does not exist: {configuration.ProjectPath}");
         }
 
-        if (string.IsNullOrWhiteSpace(configuration.ClaudeReportFileName))
-        {
-            errors.Add("Claude report file name cannot be empty.");
-        }
-
-        if (string.IsNullOrWhiteSpace(configuration.CodexPromptFileName))
-        {
-            errors.Add("Codex prompt file name cannot be empty.");
-        }
+        var claudeNameError = ProjectService.GetProtocolFileNameValidationError(configuration.ClaudeReportFileName, "Claude report");
+        var codexNameError = ProjectService.GetProtocolFileNameValidationError(configuration.CodexPromptFileName, "Codex prompt");
+        if (claudeNameError is not null) errors.Add(claudeNameError);
+        if (codexNameError is not null) errors.Add(codexNameError);
 
         if (string.Equals(configuration.ClaudeReportFileName, configuration.CodexPromptFileName, StringComparison.OrdinalIgnoreCase))
         {

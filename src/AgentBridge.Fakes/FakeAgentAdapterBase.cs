@@ -9,11 +9,16 @@ public abstract class FakeAgentAdapterBase(string name, AgentRole role) : IAgent
 
     public AgentRole Role { get; } = role;
 
+    public virtual bool SupportsRealMessageDelivery => false;
+
     /// <summary>Test-controlled behavior and a record of every message actually "sent".</summary>
     public FakeAgentAdapterState State { get; } = new();
 
-    public Task<bool> IsApplicationRunningAsync(CancellationToken cancellationToken) =>
-        Task.FromResult(State.IsApplicationRunning);
+    public Task<bool> IsApplicationRunningAsync(CancellationToken cancellationToken)
+    {
+        State.IsApplicationRunningCallCount++;
+        return Task.FromResult(State.IsApplicationRunning);
+    }
 
     public Task<bool> LaunchApplicationAsync(CancellationToken cancellationToken)
     {
@@ -25,16 +30,34 @@ public abstract class FakeAgentAdapterBase(string name, AgentRole role) : IAgent
         return Task.FromResult(State.LaunchSucceeds);
     }
 
-    public Task<bool> IsReadyAsync(CancellationToken cancellationToken) => Task.FromResult(State.IsReady);
+    public Task<bool> IsReadyAsync(CancellationToken cancellationToken)
+    {
+        State.IsReadyCallCount++;
+        return Task.FromResult(State.IsReady);
+    }
 
-    public Task<bool> ActivateAsync(CancellationToken cancellationToken) => Task.FromResult(State.ActivateSucceeds);
+    public Task<bool> ActivateAsync(CancellationToken cancellationToken)
+    {
+        State.ActivateCallCount++;
+        return Task.FromResult(State.ActivateSucceeds);
+    }
 
-    public Task<bool> FindConversationAsync(CancellationToken cancellationToken) => Task.FromResult(State.FindConversationSucceeds);
+    public Task<bool> FindConversationAsync(CancellationToken cancellationToken)
+    {
+        State.FindConversationCallCount++;
+        return Task.FromResult(State.FindConversationSucceeds);
+    }
 
-    public Task<bool> FindInputBoxAsync(CancellationToken cancellationToken) => Task.FromResult(State.FindInputBoxSucceeds);
+    public Task<bool> FindInputBoxAsync(CancellationToken cancellationToken)
+    {
+        State.FindInputBoxCallCount++;
+        return Task.FromResult(State.FindInputBoxSucceeds);
+    }
 
     public async Task<bool> SendMessageAsync(string message, CancellationToken cancellationToken)
     {
+        State.SendMessageCallCount++;
+
         if (State.SendMessageDelay > TimeSpan.Zero)
         {
             await Task.Delay(State.SendMessageDelay, cancellationToken).ConfigureAwait(false);
