@@ -11,5 +11,9 @@
     <Project Path="tests/AgentBridge.Core.Tests/AgentBridge.Core.Tests.csproj" />
     <Project Path="tests/AgentBridge.Infrastructure.Tests/AgentBridge.Infrastructure.Tests.csproj" />
     <Project Path="tests/AgentBridge.Integration.Tests/AgentBridge.Integration.Tests.csproj" />
+    <Project Path="tests/AgentBridge.UIAutomation.Tests/AgentBridge.UIAutomation.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/AgentBridge.UIAutomation.Probe/AgentBridge.UIAutomation.Probe.csproj" />
   </Folder>
 </Solution>

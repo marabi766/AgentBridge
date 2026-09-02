@@ -24,6 +24,7 @@ public partial class MainWindow : System.Windows.Window
         _orchestrator = orchestrator;
         _viewModel.ConfirmStop = ConfirmStop;
         _viewModel.ConfirmReset = ConfirmReset;
+        _viewModel.ConfirmLiveEnable = ConfirmLiveEnable;
         _viewModel.SelectProjectFolder = SelectProjectFolder;
         _viewModel.ThemeChanged = ThemeManager.Apply;
         _viewModel.NotificationsChanged = _tray.SetNotificationsEnabled;
@@ -63,6 +64,14 @@ public partial class MainWindow : System.Windows.Window
         this,
         "Resetting discards the current iteration counter, recorded protocol-file hashes, and retry progress. Protocol files, project settings, Git data, and logs are not changed.\n\nReset recovery state?",
         "Reset Agent Bridge state",
+        MessageBoxButton.OKCancel,
+        MessageBoxImage.Warning,
+        MessageBoxResult.Cancel) == MessageBoxResult.OK;
+
+    private bool ConfirmLiveEnable() => MessageBox.Show(
+        this,
+        "Live mode can type into and invoke Send in both configured desktop conversations. Agent Bridge will refuse ambiguous targets and only report success after observing a cleared input plus an exact rendered copy of the message.\n\nVerify both conversation identifiers before continuing. Enable Live mode?",
+        "Enable Live message delivery",
         MessageBoxButton.OKCancel,
         MessageBoxImage.Warning,
         MessageBoxResult.Cancel) == MessageBoxResult.OK;

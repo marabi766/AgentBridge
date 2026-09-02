@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text;
 using AgentBridge.Abstractions.Interfaces;
 using AgentBridge.Abstractions.Models;
+using AgentBridge.UIAutomation.Locators;
 using FlaUI.Core.AutomationElements;
 using FlaUI.UIA3;
 using Microsoft.Extensions.Logging;
@@ -11,33 +12,40 @@ namespace AgentBridge.UIAutomation.Adapters;
 /// <summary>
 /// Shared plumbing for driving one Windows GUI application via UI Automation.
 ///
-/// Scope for this phase: process detection, launch, and window activation are real
-/// (cheap, verified against the actually-installed Claude Desktop / ChatGPT Desktop
-/// on this machine — see UI_AUTOMATION.md). Conversation discovery, input-box
-/// discovery, and message sending are intentionally NOT implemented yet — both apps
-/// are Chromium/Electron-based and only expose their web-content accessibility tree
-/// after a UI Automation client "warms up" the renderer (see UI_AUTOMATION.md for
-/// the exact behavior observed). Building reliable selectors for that tree is real
-/// UI Automation implementation work, deferred to a later phase per the backend-first
-/// plan. Calling these methods now returns false with a clear log entry — it never
-/// throws and never pretends to have sent something it didn't.
+/// Process/window control plus semantic, receipt-verifying delivery for one Windows
+/// desktop agent. Every ambiguous selector fails closed and Send is invoked once.
 /// </summary>
 public abstract class DesktopAgentAdapterBase : IAgentAdapter, IDisposable
 {
     private readonly ILogger _logger;
+    private readonly IConfigurationService _configurationService;
+    private readonly IConversationLocator _conversationLocator;
+    private readonly IInputLocator _inputLocator;
+    private readonly IMessageSender _messageSender;
     private readonly Lazy<UIA3Automation> _automation = new(() => new UIA3Automation());
+    private AutomationElement? _conversation;
+    private AutomationElement? _inputBox;
+    private int _disposed;
 
     protected DesktopAgentAdapterBase(
         string name,
         AgentRole role,
         string processName,
         string? executablePath,
+        IConfigurationService configurationService,
+        IConversationLocator conversationLocator,
+        IInputLocator inputLocator,
+        IMessageSender messageSender,
         ILogger logger)
     {
         Name = name;
         Role = role;
         ProcessName = processName;
         ExecutablePath = executablePath;
+        _configurationService = configurationService;
+        _conversationLocator = conversationLocator;
+        _inputLocator = inputLocator;
+        _messageSender = messageSender;
         _logger = logger;
     }
 
@@ -45,7 +53,7 @@ public abstract class DesktopAgentAdapterBase : IAgentAdapter, IDisposable
 
     public AgentRole Role { get; }
 
-    public bool SupportsRealMessageDelivery => false;
+    public bool SupportsRealMessageDelivery => true;
 
     protected string ProcessName { get; }
 
@@ -133,28 +141,57 @@ public abstract class DesktopAgentAdapterBase : IAgentAdapter, IDisposable
         }
     }
 
-    public Task<bool> FindConversationAsync(CancellationToken cancellationToken)
+    public async Task<bool> FindConversationAsync(CancellationToken cancellationToken)
     {
-        _logger.LogWarning(
-            "{Agent}.FindConversationAsync is not implemented yet — conversation discovery is deferred to " +
-            "the UI Automation implementation phase (see UI_AUTOMATION.md). Use Dry Run for now.", Name);
-        return Task.FromResult(false);
+        _conversation = null;
+        _inputBox = null;
+        using var processes = new ProcessListDisposer(GetCandidateProcesses(ProcessName));
+        var process = processes.Processes.FirstOrDefault();
+        if (process is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            var window = _automation.Value.FromHandle(process.MainWindowHandle);
+            var configuration = await _configurationService.LoadAsync(cancellationToken).ConfigureAwait(false);
+            var conversationIdentifier = Role == AgentRole.Claude
+                ? configuration.ClaudeConversationIdentifier
+                : configuration.CodexConversationIdentifier;
+            _conversation = await _conversationLocator.FindConversationAsync(
+                window, conversationIdentifier, cancellationToken).ConfigureAwait(false);
+            return _conversation is not null;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Failed to locate the configured {Agent} conversation.", Name);
+            return false;
+        }
     }
 
-    public Task<bool> FindInputBoxAsync(CancellationToken cancellationToken)
+    public async Task<bool> FindInputBoxAsync(CancellationToken cancellationToken)
     {
-        _logger.LogWarning(
-            "{Agent}.FindInputBoxAsync is not implemented yet — input box discovery is deferred to " +
-            "the UI Automation implementation phase (see UI_AUTOMATION.md). Use Dry Run for now.", Name);
-        return Task.FromResult(false);
+        _inputBox = null;
+        if (_conversation is null)
+        {
+            _logger.LogWarning("Cannot locate {Agent} input before verifying the configured conversation.", Name);
+            return false;
+        }
+
+        _inputBox = await _inputLocator.FindInputBoxAsync(_conversation, cancellationToken).ConfigureAwait(false);
+        return _inputBox is not null;
     }
 
-    public Task<bool> SendMessageAsync(string message, CancellationToken cancellationToken)
+    public async Task<bool> SendMessageAsync(string message, CancellationToken cancellationToken)
     {
-        _logger.LogWarning(
-            "{Agent}.SendMessageAsync is not implemented yet — message delivery is deferred to " +
-            "the UI Automation implementation phase (see UI_AUTOMATION.md). No message was sent. Use Dry Run for now.", Name);
-        return Task.FromResult(false);
+        if (_conversation is null || _inputBox is null)
+        {
+            _logger.LogWarning("Cannot send to {Agent}: conversation and input must first be uniquely verified.", Name);
+            return false;
+        }
+
+        return await _messageSender.SendAsync(_conversation, _inputBox, message, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<AgentStatus> GetStatusAsync(CancellationToken cancellationToken)
@@ -241,6 +278,11 @@ public abstract class DesktopAgentAdapterBase : IAgentAdapter, IDisposable
 
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
         if (_automation.IsValueCreated)
         {
             _automation.Value.Dispose();

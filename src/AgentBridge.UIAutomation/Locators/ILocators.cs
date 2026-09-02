@@ -5,10 +5,8 @@ namespace AgentBridge.UIAutomation.Locators;
 /// <summary>
 /// Fine-grained UI Automation abstractions consumed only by adapters in this
 /// project — orchestration code never sees these, only <see cref="AgentBridge.Abstractions.Interfaces.IAgentAdapter"/>.
-/// Concrete implementations are intentionally deferred to the UI Automation
-/// implementation phase (see UI_AUTOMATION.md); this phase only establishes the
-/// layered-selector architecture so real selector logic can be dropped in later
-/// without touching the orchestrator.
+/// Selectors are deliberately semantic and fail closed. They do not use screen
+/// coordinates, localized DOM paths, or a "first matching element" fallback.
 /// </summary>
 public interface IWindowLocator
 {
@@ -27,5 +25,5 @@ public interface IInputLocator
 
 public interface IMessageSender
 {
-    Task<bool> SendAsync(AutomationElement inputBox, string message, CancellationToken cancellationToken);
+    Task<bool> SendAsync(AutomationElement conversation, AutomationElement inputBox, string message, CancellationToken cancellationToken);
 }

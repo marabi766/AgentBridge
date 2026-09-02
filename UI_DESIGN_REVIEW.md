@@ -11,7 +11,7 @@ The archive is a design/handoff document rather than an executable application p
 
 ## Required implementation constraints
 
-- Live mode remains unavailable until both selected adapters expose real delivery and a positive verification mechanism. The dark Live-mode screen is a future-state specification only.
+- This review originally kept Live mode unavailable. As of 2026-09-03, both production adapters expose fail-closed delivery with positive receipt verification; Live still requires exact conversation identifiers plus explicit confirmation, and its first real canary remains pending.
 - `Retry step`, one-time timeout extension, manual `Mark as delivered`, wizard progress persistence, and delivery receipts require backend/application contracts not currently present. The UI must not display these as working controls until those contracts exist. Tray behavior and dark-theme switching are now implemented.
 - The design's eight visual cycle positions are a presentation grouping over the twelve `BridgeState` values; the state machine remains authoritative.
 - The verified-green token is reserved for confirmed file-hash changes or a future verified delivery outcome. Agent process detection or an attempted send is not enough.

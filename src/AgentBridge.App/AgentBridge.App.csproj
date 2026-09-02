@@ -16,7 +16,7 @@
     <ProjectReference Include="..\AgentBridge.Abstractions\AgentBridge.Abstractions.csproj" />
     <ProjectReference Include="..\AgentBridge.Core\AgentBridge.Core.csproj" />
     <ProjectReference Include="..\AgentBridge.Infrastructure\AgentBridge.Infrastructure.csproj" />
-    <ProjectReference Include="..\AgentBridge.Fakes\AgentBridge.Fakes.csproj" />
+    <ProjectReference Include="..\AgentBridge.UIAutomation\AgentBridge.UIAutomation.csproj" />
   </ItemGroup>
 
   <ItemGroup>

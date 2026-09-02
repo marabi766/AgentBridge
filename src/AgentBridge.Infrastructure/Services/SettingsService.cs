@@ -81,6 +81,19 @@ public sealed class SettingsService(IConfigurationService configurationService) 
             errors.Add("Codex instruction template cannot be empty.");
         }
 
+        if (!configuration.DryRun)
+        {
+            if (string.IsNullOrWhiteSpace(configuration.ClaudeConversationIdentifier))
+            {
+                errors.Add("Claude conversation identifier is required for Live mode.");
+            }
+
+            if (string.IsNullOrWhiteSpace(configuration.CodexConversationIdentifier))
+            {
+                errors.Add("Codex conversation identifier is required for Live mode.");
+            }
+        }
+
         return Task.FromResult(errors.Count == 0 ? SettingsValidationResult.Success() : SettingsValidationResult.Failure([.. errors]));
     }
 

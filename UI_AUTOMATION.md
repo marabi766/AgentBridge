@@ -1,11 +1,10 @@
-# UI Automation — findings and current state
+# UI Automation — verified delivery implementation
 
-## Status: architecture only, real selectors deferred
+## Status: semantic selectors implemented; live canary still requires user approval
 
-Per the backend-first phase, this document records what was **actually
-verified** against the real, currently-installed Claude Desktop and ChatGPT
-Desktop on this machine, and precisely what is and isn't implemented in
-`AgentBridge.UIAutomation`. Nothing below is guessed.
+This document records what was verified against the installed Claude Desktop
+and ChatGPT Desktop applications and the fail-closed delivery contract now
+implemented in `AgentBridge.UIAutomation`.
 
 ## Environment as inspected (2026-09-02)
 
@@ -65,54 +64,53 @@ same window, returned a 238KB tree** with the full web app content
 generic Chromium accessibility roles like `Document`, `Group`, `Text` rather
 than native Win32 controls).
 
-**Implication for the real implementation (next phase):** the adapter must
-issue a "warm-up" query (e.g. read a cheap property from the main window)
-and then wait/retry — a single query-and-give-up will see an empty tree and
-incorrectly report the app as not ready. This must be built into
-`IsReadyAsync`/`FindConversationAsync` with a bounded retry, not a fixed
-sleep.
+**Implemented response:** conversation discovery performs a first descendant
+read and, when the tree is still shallow, waits up to two seconds before a
+second read. The orchestrator adds bounded retry around discovery.
 
-## Selector strategy for the next phase
+## Implemented selector strategy
 
 Given the tree is generic Chromium accessibility roles (not custom
 AutomationIds), the layered-selector priority from the project spec
 (AutomationId -> ControlType -> Name -> structural relationship -> coordinate
 fallback) will mostly skip straight to **ControlType + Name + structural
-position**, since these Electron apps do not appear to assign custom
-AutomationIds to their React-rendered content. This needs a full, patient
-tree walk (with the warm-up above) to identify the actual input textbox and
-conversation container by role and accessible name — that is real UI
-Automation implementation work and is explicitly out of scope for this
-phase. `AgentBridge.UIAutomation.Locators.ILocators` (`IWindowLocator`,
-`IConversationLocator`, `IInputLocator`, `IMessageSender`) establishes where
-that logic will live; no concrete implementation exists yet.
+position**, since these Electron apps do not assign stable AutomationIds to
+their React content. The implementation uses:
 
-## What is implemented right now in `DesktopAgentAdapterBase`
+- an exact configured active-conversation title;
+- a visible, enabled title button outside sidebar/folder rows;
+- exactly one visible, enabled `Edit` control with a writable `ValuePattern`
+  and known editor semantics (`ProseMirror`, `Prompt`, or `Do anything`);
+- exactly one enabled `Button` named `Send` with an `InvokePattern`.
+
+No coordinate, clipboard, keyboard-shortcut, fuzzy-title, sidebar-click, or
+"first match" fallback exists. Ambiguity returns `false`.
+
+## Delivery verification contract
 
 | Method | Status | Notes |
 |---|---|---|
 | `IsApplicationRunningAsync` | **Real** | `Process.GetProcessesByName` + `MainWindowHandle != 0`. |
 | `LaunchApplicationAsync` | **Real** | `Process.Start` on a configured executable path. Untested against the MSIX-packaged executables specifically (should work — they're signed Win32 EXEs, not UWP — but not yet verified end-to-end). |
 | `ActivateAsync` | **Real** | `FlaUI Window.SetForeground()` on the main window handle. |
-| `IsReadyAsync` | **Real, shallow** | Checks `IsEnabled` / `!IsOffscreen` on the main window only. Does **not** yet do the warm-up-and-wait needed to know the web content has actually rendered. |
+| `IsReadyAsync` | **Real** | Checks `IsEnabled` / `!IsOffscreen`; deeper readiness is proven during semantic discovery. |
 | `GetDiagnosticsAsync` | **Real** | Dumps a 3-level-deep automation tree per running process — directly reuses the technique validated above. This is the diagnostics capability the spec asks to keep available regardless of automation-phase progress. |
-| `FindConversationAsync` | **Not implemented** | Returns `false` and logs a clear message. No selector logic exists yet. |
-| `FindInputBoxAsync` | **Not implemented** | Same. |
-| `SendMessageAsync` | **Not implemented** | Same — never sends anything, never pretends to. |
+| `FindConversationAsync` | **Implemented** | Requires one exact active-title marker matching the configured identifier. |
+| `FindInputBoxAsync` | **Implemented** | Requires one writable semantic editor. |
+| `SendMessageAsync` | **Implemented** | Sets a draft through `ValuePattern`, invokes one exact Send button once, then requires both an empty input and one additional exact rendered message. |
 
-None of the "not implemented" methods throw — they return `false` with a
-warning log, matching the `IAgentAdapter` contract ("must not throw for
-expected negative outcomes"). `AgentOrchestrator` treats a `false` from any
-of these as a failed invocation -> `Error` state with a descriptive
-`LastError`, exactly like a real failure would be handled. Use **Dry Run**
-mode until the next phase implements real message delivery.
+Expected negative outcomes return `false`. Before Send is invoked, any draft
+is cleared on failure or cancellation. After the single invocation, absence
+of a positive receipt returns failure and is never represented as delivered.
 
-## Known limitation to carry into the next phase
+## Validation performed on 2026-09-03
 
-Because conversation/input-box discovery isn't implemented, there is
-currently no way to target a *specific* conversation within either app (the
-"conversation identifier" fields in `BridgeConfiguration` are accepted but
-unused). Section 30 of the original spec anticipates this may need a
-user-driven "select/confirm the target conversation" setup step if automatic
-identification proves unreliable once the real tree-walking is built — kept
-as an open design question, not resolved here.
+The read-only probe verified both the active conversation and unique input on
+the live installed applications:
+
+- Claude: `Conversation=VERIFIED Input=VERIFIED`
+- ChatGPT/Codex: `Conversation=VERIFIED Input=VERIFIED`
+
+No text was entered and no control was invoked. A real one-message canary was
+intentionally not performed because it is an external side effect and needs
+separate action-time user approval. Dry Run remains the default.

@@ -22,6 +22,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private string _projectPath = string.Empty;
     private string _claudeReportFileName = "ClaudeResultReport.md";
     private string _codexPromptFileName = "CodexPrompt.md";
+    private string _claudeConversationIdentifier = string.Empty;
+    private string _codexConversationIdentifier = string.Empty;
     private int _maximumIterations = 50;
     private int _agentTimeoutSeconds = 30;
     private int _retryCount = 3;
@@ -29,6 +31,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private bool _notificationsEnabled = true;
     private bool _startMinimized;
     private bool _darkTheme;
+    private bool _dryRun = true;
     private int _setupStep = 1;
     private string _setupValidation = "No project validation has run yet.";
 
@@ -80,6 +83,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public ObservableCollection<LogEntry> ActivityEntries { get; } = [];
     public Func<bool>? ConfirmStop { get; set; }
     public Func<bool>? ConfirmReset { get; set; }
+    public Func<bool>? ConfirmLiveEnable { get; set; }
     public Func<string?>? SelectProjectFolder { get; set; }
     public Action<bool>? ThemeChanged { get; set; }
     public Action<bool>? NotificationsChanged { get; set; }
@@ -119,6 +123,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public string ProjectPath { get => _projectPath; set => SetProperty(ref _projectPath, value); }
     public string ClaudeReportFileName { get => _claudeReportFileName; set => SetProperty(ref _claudeReportFileName, value); }
     public string CodexPromptFileName { get => _codexPromptFileName; set => SetProperty(ref _codexPromptFileName, value); }
+    public string ClaudeConversationIdentifier { get => _claudeConversationIdentifier; set => SetProperty(ref _claudeConversationIdentifier, value); }
+    public string CodexConversationIdentifier { get => _codexConversationIdentifier; set => SetProperty(ref _codexConversationIdentifier, value); }
     public int MaximumIterations { get => _maximumIterations; set => SetProperty(ref _maximumIterations, value); }
     public int AgentTimeoutSeconds { get => _agentTimeoutSeconds; set => SetProperty(ref _agentTimeoutSeconds, value); }
     public int RetryCount { get => _retryCount; set => SetProperty(ref _retryCount, value); }
@@ -132,6 +138,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         }
     }
     public bool StartMinimized { get => _startMinimized; set => SetProperty(ref _startMinimized, value); }
+    public bool DryRun { get => _dryRun; set => SetProperty(ref _dryRun, value); }
     public bool DarkTheme
     {
         get => _darkTheme;
@@ -251,7 +258,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         {
             await TestClaudeAsync();
             await TestCodexAsync();
-            SetupValidation = "Readiness probes completed. Conversation discovery and verified delivery are not available, so Live mode stays disabled.";
+            SetupValidation = "Readiness probes completed. They do not type, click, or send. Configure exact conversation titles in Settings before enabling Live mode.";
         }
 
         if (SetupStep == 5)
@@ -318,18 +325,33 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     private async Task<bool> SaveSettingsCoreAsync()
     {
+        if (CanStop)
+        {
+            OperationMessage = "Stop the bridge before changing settings; the active run keeps its current safety mode.";
+            return false;
+        }
+
         var candidate = BuildConfiguration();
         try
         {
-            var result = await _settingsService.UpdateAsync(candidate, CancellationToken.None);
-            if (!result.IsValid)
+            var validation = await _settingsService.ValidateAsync(candidate, CancellationToken.None);
+            if (!validation.IsValid)
             {
-                OperationMessage = "Settings were not saved: " + string.Join(" ", result.Errors);
+                OperationMessage = "Settings were not saved: " + string.Join(" ", validation.Errors);
                 return false;
             }
 
+            if (_configuration.DryRun && !candidate.DryRun && !(ConfirmLiveEnable?.Invoke() ?? false))
+            {
+                DryRun = true;
+                OperationMessage = "Live mode was not enabled; Dry Run remains selected.";
+                return false;
+            }
+
+            var result = await _settingsService.UpdateAsync(candidate, CancellationToken.None);
+
             _configuration = candidate;
-            OperationMessage = "Settings saved atomically. Timing changes apply on the next run.";
+            OperationMessage = "Settings saved atomically. Process-path and watcher-timing changes apply after restarting Agent Bridge.";
             await RefreshAsync();
             return true;
         }
@@ -345,6 +367,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         ProjectPath = ProjectPath.Trim(),
         ClaudeReportFileName = ClaudeReportFileName.Trim(),
         CodexPromptFileName = CodexPromptFileName.Trim(),
+        ClaudeConversationIdentifier = NullIfWhiteSpace(ClaudeConversationIdentifier),
+        CodexConversationIdentifier = NullIfWhiteSpace(CodexConversationIdentifier),
         MaximumIterations = MaximumIterations,
         AgentTimeoutSeconds = AgentTimeoutSeconds,
         RetryCount = RetryCount,
@@ -352,7 +376,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         NotificationsEnabled = NotificationsEnabled,
         StartMinimized = StartMinimized,
         DarkTheme = DarkTheme,
-        DryRun = true,
+        DryRun = DryRun,
     };
 
     private void LoadSettings(BridgeConfiguration value)
@@ -360,6 +384,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         ProjectPath = value.ProjectPath;
         ClaudeReportFileName = value.ClaudeReportFileName;
         CodexPromptFileName = value.CodexPromptFileName;
+        ClaudeConversationIdentifier = value.ClaudeConversationIdentifier ?? string.Empty;
+        CodexConversationIdentifier = value.CodexConversationIdentifier ?? string.Empty;
         MaximumIterations = value.MaximumIterations;
         AgentTimeoutSeconds = value.AgentTimeoutSeconds;
         RetryCount = value.RetryCount;
@@ -367,7 +393,11 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         NotificationsEnabled = value.NotificationsEnabled;
         StartMinimized = value.StartMinimized;
         DarkTheme = value.DarkTheme;
+        DryRun = value.DryRun;
     }
+
+    private static string? NullIfWhiteSpace(string value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private void OnStatusChanged(object? sender, BridgeStatusView status) =>
         _uiContext.Post(_ => Status = status, null);

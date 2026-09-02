@@ -217,7 +217,7 @@
                             </Border>
                         </Grid>
                         <Border Style="{StaticResource PanelStyle}" Background="{DynamicResource WarningSurfaceBrush}">
-                            <TextBlock Text="Delivery receipt verification is not implemented. Live mode remains unavailable and the application will not represent an attempted send as delivered." TextWrapping="Wrap" />
+                            <TextBlock Text="Diagnostics are read-only. Live delivery requires an exact active-conversation title, a unique semantic input and Send control, and a verified rendered receipt." TextWrapping="Wrap" />
                         </Border>
                     </StackPanel>
 
@@ -240,9 +240,12 @@
                             <Border Grid.Column="1" Style="{StaticResource PanelStyle}">
                                 <StackPanel>
                                     <TextBlock Text="Automation safety" Style="{StaticResource SectionTitle}" />
-                                    <CheckBox IsChecked="True" IsEnabled="False" Content="Dry Run — simulate delivery" Margin="0,0,0,8" />
-                                    <CheckBox IsChecked="False" IsEnabled="False" Content="Allow Live mode" Margin="0,0,0,8" />
-                                    <TextBlock Text="Live mode is unavailable because no registered adapter can verify delivery. This reason remains visible by design." TextWrapping="Wrap" Foreground="{DynamicResource WarningBrush}" />
+                                    <CheckBox IsChecked="{Binding DryRun}" Content="Dry Run — simulate delivery only" Margin="0,0,0,10" />
+                                    <TextBlock Text="CLAUDE ACTIVE CONVERSATION TITLE" Style="{StaticResource Caption}" />
+                                    <TextBox Text="{Binding ClaudeConversationIdentifier, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,10" />
+                                    <TextBlock Text="CODEX ACTIVE CONVERSATION TITLE" Style="{StaticResource Caption}" />
+                                    <TextBox Text="{Binding CodexConversationIdentifier, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,10" />
+                                    <TextBlock Text="Clearing Dry Run requires both exact titles and a confirmation when settings are saved. Settings cannot be changed during an active run." TextWrapping="Wrap" Foreground="{DynamicResource WarningBrush}" />
                                 </StackPanel>
                             </Border>
                         </Grid>
@@ -293,7 +296,7 @@
                                 <TextBlock Text="Welcome and safety" Style="{StaticResource SectionTitle}" />
                                 <TextBlock Text="Agent Bridge coordinates a supervised file-based loop between Claude and Codex. This setup validates your project without changing it." TextWrapping="Wrap" Margin="0,0,0,12" />
                                 <Border Background="{DynamicResource WarningSurfaceBrush}" BorderBrush="{DynamicResource WarningBrush}" BorderThickness="1" Padding="12">
-                                    <TextBlock Text="Dry Run is mandatory in this build. No clicks, keystrokes, or messages are sent to either desktop application." TextWrapping="Wrap" />
+                                    <TextBlock Text="Dry Run is enabled by default and sends no desktop input. Live mode must be configured and confirmed separately in Settings." TextWrapping="Wrap" />
                                 </Border>
                             </StackPanel>
                         </Border>
@@ -329,7 +332,7 @@
                                 <TextBlock Text="ChatGPT Desktop (Codex)" FontWeight="SemiBold" />
                                 <TextBlock Text="{Binding CodexDiagnostics}" TextWrapping="Wrap" Margin="0,3,0,12" />
                                 <Border Background="{DynamicResource WarningSurfaceBrush}" Padding="12">
-                                    <TextBlock Text="Conversation discovery and verified message delivery are not implemented. Setup can finish, but Live mode remains unavailable." TextWrapping="Wrap" />
+                                    <TextBlock Text="These probes are read-only. Configure exact active-conversation titles in Settings before considering Live mode." TextWrapping="Wrap" />
                                 </Border>
                             </StackPanel>
                         </Border>
@@ -343,7 +346,7 @@
                                 <TextBlock Text="{Binding ClaudeReportFileName}" />
                                 <TextBlock Text="{Binding CodexPromptFileName}" Margin="0,2,0,10" />
                                 <TextBlock Text="MODE" Style="{StaticResource Caption}" />
-                                <TextBlock Text="Dry Run — no desktop input" Style="{StaticResource ValueText}" />
+                                <TextBlock Text="{Binding ModeText}" Style="{StaticResource ValueText}" />
                                 <TextBlock Text="Finishing saves all settings atomically. If validation fails, nothing is written." TextWrapping="Wrap" />
                             </StackPanel>
                         </Border>

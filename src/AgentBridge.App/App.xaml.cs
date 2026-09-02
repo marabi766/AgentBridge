@@ -2,13 +2,14 @@ using AgentBridge.Abstractions.Interfaces;
 using AgentBridge.Core.Orchestration;
 using AgentBridge.Core.Retry;
 using AgentBridge.Core.Templates;
-using AgentBridge.Fakes;
 using AgentBridge.Infrastructure.FileWatching;
 using AgentBridge.Infrastructure.Git;
 using AgentBridge.Infrastructure.Logging;
 using AgentBridge.Infrastructure.Paths;
 using AgentBridge.Infrastructure.Persistence;
 using AgentBridge.Infrastructure.Services;
+using AgentBridge.UIAutomation.Adapters;
+using AgentBridge.UIAutomation.Locators;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -90,14 +91,31 @@ public partial class App : System.Windows.Application
         builder.Services.AddSingleton<IRetryPolicy, ExponentialBackoffRetryPolicy>();
         builder.Services.AddSingleton<ILogService>(_ => new FileLogService(AppPaths.LogsDirectory));
 
-        // Live delivery remains unavailable until a receipt-verifying adapter exists.
-        builder.Services.AddSingleton<IAgentAdapter, FakeClaudeAdapter>();
-        builder.Services.AddSingleton<IAgentAdapter, FakeCodexAdapter>();
+        var bootstrapConfig = new JsonConfigurationService(AppPaths.SettingsFilePath, NullLogger<JsonConfigurationService>.Instance)
+            .LoadAsync(CancellationToken.None).GetAwaiter().GetResult();
+
+        builder.Services.AddSingleton<IConversationLocator, SemanticConversationLocator>();
+        builder.Services.AddSingleton<IInputLocator, SemanticInputLocator>();
+        builder.Services.AddSingleton<IMessageSender, VerifiedMessageSender>();
+        builder.Services.AddSingleton<IAgentAdapter>(sp => new ClaudeDesktopAdapter(
+            bootstrapConfig.ClaudeProcessName,
+            bootstrapConfig.ClaudeExecutablePath,
+            sp.GetRequiredService<IConfigurationService>(),
+            sp.GetRequiredService<IConversationLocator>(),
+            sp.GetRequiredService<IInputLocator>(),
+            sp.GetRequiredService<IMessageSender>(),
+            sp.GetRequiredService<ILogger<ClaudeDesktopAdapter>>()));
+        builder.Services.AddSingleton<IAgentAdapter>(sp => new ChatGptDesktopAdapter(
+            bootstrapConfig.ChatGptProcessName,
+            bootstrapConfig.ChatGptExecutablePath,
+            sp.GetRequiredService<IConfigurationService>(),
+            sp.GetRequiredService<IConversationLocator>(),
+            sp.GetRequiredService<IInputLocator>(),
+            sp.GetRequiredService<IMessageSender>(),
+            sp.GetRequiredService<ILogger<ChatGptDesktopAdapter>>()));
         builder.Services.AddSingleton<IAgentAdapterProvider, DefaultAgentAdapterProvider>();
         builder.Services.AddSingleton<IAgentDiagnosticsService, AgentDiagnosticsService>();
 
-        var bootstrapConfig = new JsonConfigurationService(AppPaths.SettingsFilePath, NullLogger<JsonConfigurationService>.Instance)
-            .LoadAsync(CancellationToken.None).GetAwaiter().GetResult();
         builder.Services.AddSingleton(new FileWatcherOptions
         {
             DebounceMilliseconds = bootstrapConfig.FileDebounceMilliseconds,

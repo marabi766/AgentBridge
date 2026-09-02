@@ -11,7 +11,7 @@ This approval applies to the backend corrective gate, not to the unfinished prod
 - Current milestone: Milestone 9 — verified desktop delivery
 - Verified milestones: 1–8
 - Current objective: Implement and validate real Claude/ChatGPT conversation targeting and positive delivery verification.
-- Overall health: Green backend and Dry Run desktop product / Live delivery intentionally unavailable
+- Overall health: Green backend and desktop product / Live delivery implemented, controlled canary pending
 - Current change risk: Medium because the desktop host and logging read path changed
 
 ## Work Completed by Codex
@@ -36,11 +36,15 @@ This approval applies to the backend corrective gate, not to the unfinished prod
 - Added system tray controls, minimize-to-tray, status tooltip, Windows balloon notifications, start-minimized behavior, and existing-instance activation.
 - Added persisted light/dark theme switching and corrected theme resources after real visual QA.
 - Made Git executable discovery robust for desktop processes whose inherited PATH differs from terminal sessions.
+- Implemented exact active-conversation targeting and unique semantic input discovery for both desktop agents.
+- Implemented single-invoke message delivery with positive receipt verification and pre-send draft rollback.
+- Wired real adapters into the WPF host and added guarded Live-mode settings with exact target identifiers.
+- Added a reusable read-only accessibility probe and UI Automation selector tests.
 
 ## Validation Evidence
 
 - Debug build: passed with 0 warnings and 0 errors.
-- Debug tests: 99/99 passed (48 core, 43 infrastructure, 8 integration).
+- Debug tests: 117/117 passed (48 core, 45 infrastructure, 8 integration, 16 UI Automation).
 - Release build: passed with 0 warnings and 0 errors.
 - Release build: passed with 0 warnings and 0 errors.
 - Release tests: 99/99 passed (48 core, 43 infrastructure, 8 integration).
@@ -51,12 +55,11 @@ This approval applies to the backend corrective gate, not to the unfinished prod
 
 ## Remaining Product Work
 
-1. Implement real Claude Desktop conversation/input discovery and verified message delivery.
-2. Implement the equivalent ChatGPT Desktop/Codex automation.
-3. Validate real delivery, selector fallback, retries, app-version drift, and wrong-conversation prevention.
-4. Add rich Activity filtering/export and the optional recovery timeline.
-5. Complete end-to-end UI tests with controlled desktop applications.
-6. Add packaging, installer, operational documentation, and final release audit.
+1. Perform one explicitly approved real-message canary per application.
+2. Validate one bounded real loop and app-version drift behavior.
+3. Add rich Activity filtering/export and the optional recovery timeline.
+4. Complete end-to-end UI tests with controlled desktop applications.
+5. Add packaging, installer, operational documentation, and final release audit.
 
 ## Deferred Technical Debt
 
@@ -67,4 +70,4 @@ This approval applies to the backend corrective gate, not to the unfinished prod
 
 ## Next Gate
 
-The next gate is real UI Automation. It remains a separate high-risk milestone and cannot enable Live mode without positive delivery verification and wrong-conversation safeguards.
+The next gate is a user-approved controlled Live canary. Wrong-conversation safeguards and positive receipt logic are implemented; no real message has yet been sent by this milestone.

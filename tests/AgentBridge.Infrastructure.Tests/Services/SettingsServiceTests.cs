@@ -76,6 +76,40 @@ public sealed class SettingsServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Validate_LiveModeWithoutBothConversationIdentifiers_Fails()
+    {
+        var service = CreateService();
+        var config = BridgeConfiguration.CreateDefault() with
+        {
+            ProjectPath = _dir,
+            DryRun = false,
+            ClaudeConversationIdentifier = "Claude target",
+        };
+
+        var result = await service.ValidateAsync(config, CancellationToken.None);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Contains("Codex conversation identifier"));
+    }
+
+    [Fact]
+    public async Task Validate_LiveModeWithBothConversationIdentifiers_Succeeds()
+    {
+        var service = CreateService();
+        var config = BridgeConfiguration.CreateDefault() with
+        {
+            ProjectPath = _dir,
+            DryRun = false,
+            ClaudeConversationIdentifier = "Claude target",
+            CodexConversationIdentifier = "Codex target",
+        };
+
+        var result = await service.ValidateAsync(config, CancellationToken.None);
+
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
     public async Task UpdateAsync_ValidConfiguration_PersistsIt()
     {
         var service = CreateService();
