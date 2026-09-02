@@ -12,7 +12,7 @@
     </Window.InputBindings>
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BooleanToVisibility" />
-        <Style x:Key="NavButton" TargetType="Button">
+        <Style x:Key="NavButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
             <Setter Property="HorizontalContentAlignment" Value="Left" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
@@ -33,7 +33,7 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <Border Grid.Row="0" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,0,0,1" Padding="16,10">
+        <Border Grid.Row="0" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="0,0,0,1" Padding="16,10">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
@@ -43,7 +43,7 @@
                 </Grid.ColumnDefinitions>
                 <StackPanel>
                     <TextBlock Text="Agent Bridge" FontSize="20" FontWeight="SemiBold" />
-                    <TextBlock Text="Supervised Claude ↔ Codex control surface" Foreground="{StaticResource SecondaryTextBrush}" />
+                    <TextBlock Text="Supervised Claude ↔ Codex control surface" Foreground="{DynamicResource SecondaryTextBrush}" />
                 </StackPanel>
                 <StackPanel Grid.Column="1" Margin="24,0" VerticalAlignment="Center">
                     <TextBlock Text="STATE" Style="{StaticResource Caption}" />
@@ -60,9 +60,9 @@
             </Grid>
         </Border>
 
-        <Border Grid.Row="1" Background="#FFF8E7" BorderBrush="#E6C66A" BorderThickness="0,0,0,1" Padding="16,8">
+        <Border Grid.Row="1" Background="{DynamicResource WarningSurfaceBrush}" BorderBrush="{DynamicResource WarningBrush}" BorderThickness="0,0,0,1" Padding="16,8">
             <DockPanel>
-                <Border DockPanel.Dock="Left" Background="#374151" CornerRadius="2" Padding="8,3" Margin="0,0,12,0">
+                <Border DockPanel.Dock="Left" Background="{DynamicResource ModeBrush}" CornerRadius="2" Padding="8,3" Margin="0,0,12,0">
                     <TextBlock Text="{Binding ModeText}" Foreground="White" FontSize="11" FontWeight="Bold" />
                 </Border>
                 <TextBlock Text="{Binding ModeExplanation}" TextWrapping="Wrap" VerticalAlignment="Center" />
@@ -75,22 +75,23 @@
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
-            <Border Background="#ECECE9" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,0,1,0" Padding="12">
+            <Border Background="{DynamicResource NavigationBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="0,0,1,0" Padding="12">
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Bottom" Margin="0,16,0,0">
                         <TextBlock Text="PROJECT" Style="{StaticResource Caption}" />
-                        <TextBlock Text="{Binding ProjectPath}" TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" />
+                        <TextBlock Text="{Binding ProjectPath}" TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" />
                     </StackPanel>
                     <StackPanel>
                         <Button Style="{StaticResource NavButton}" Content="▣  Dashboard" Command="{Binding NavigateCommand}" CommandParameter="Dashboard" />
                         <Button Style="{StaticResource NavButton}" Content="≡  Activity" Command="{Binding NavigateCommand}" CommandParameter="Activity" />
                         <Button Style="{StaticResource NavButton}" Content="◇  Diagnostics" Command="{Binding NavigateCommand}" CommandParameter="Diagnostics" />
                         <Button Style="{StaticResource NavButton}" Content="□  Settings" Command="{Binding NavigateCommand}" CommandParameter="Settings" />
+                        <Button Style="{StaticResource NavButton}" Content="○  Setup" Command="{Binding NavigateCommand}" CommandParameter="Setup" />
                     </StackPanel>
                 </DockPanel>
             </Border>
 
-            <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="16">
+            <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="16" Background="{DynamicResource WindowBrush}" Foreground="{DynamicResource TextBrush}">
                 <Grid>
                     <!-- Dashboard -->
                     <StackPanel Visibility="{Binding IsDashboard, Converter={StaticResource BooleanToVisibility}}">
@@ -98,14 +99,18 @@
                             <Button Content="▶ Start" Command="{Binding StartCommand}" automation:AutomationProperties.HelpText="Starts or safely resumes the bridge." />
                             <Button Content="Ⅱ Pause" Command="{Binding PauseCommand}" automation:AutomationProperties.HelpText="Pauses processing while keeping the current iteration." />
                             <Button Content="▶ Resume" Command="{Binding ResumeCommand}" />
-                            <Button Content="■ Stop" Command="{Binding StopCommand}" Foreground="{StaticResource ErrorBrush}" />
+                            <Button Content="■ Stop" Command="{Binding StopCommand}" Foreground="{DynamicResource ErrorBrush}" />
                             <Button Content="↻ Refresh" Command="{Binding RefreshCommand}" />
                         </StackPanel>
 
-                        <Border Style="{StaticResource PanelStyle}" Visibility="{Binding HasError, Converter={StaticResource BooleanToVisibility}}" BorderBrush="{StaticResource ErrorBrush}" Background="#FFF1F0" automation:AutomationProperties.LiveSetting="Assertive">
+                        <Border Style="{StaticResource PanelStyle}" Visibility="{Binding HasError, Converter={StaticResource BooleanToVisibility}}" BorderBrush="{DynamicResource ErrorBrush}" Background="{DynamicResource ErrorSurfaceBrush}" automation:AutomationProperties.LiveSetting="Assertive">
                             <StackPanel>
-                                <TextBlock Text="The loop needs attention" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource ErrorBrush}" />
+                                <TextBlock Text="The loop needs attention" FontSize="15" FontWeight="SemiBold" Foreground="{DynamicResource ErrorBrush}" />
                                 <TextBlock Text="{Binding LastErrorText}" TextWrapping="Wrap" Margin="0,6,0,0" />
+                                <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                                    <Button Content="Open Diagnostics" Command="{Binding NavigateCommand}" CommandParameter="Diagnostics" />
+                                    <Button Content="Reset state…" Command="{Binding ResetStateCommand}" Foreground="{DynamicResource ErrorBrush}" />
+                                </StackPanel>
                             </StackPanel>
                         </Border>
 
@@ -122,7 +127,7 @@
                                     <TextBlock Text="Claude handoff" TextAlignment="Center" TextWrapping="Wrap" />
                                     <TextBlock Text="Claude processing" TextAlignment="Center" TextWrapping="Wrap" />
                                 </UniformGrid>
-                                <ProgressBar Minimum="0" Maximum="12" Value="{Binding Status.CurrentState}" Height="4" Margin="0,10,0,0" IsHitTestVisible="False" />
+                                <ProgressBar Minimum="0" Maximum="12" Value="{Binding Status.CurrentState, Mode=OneWay}" Height="4" Margin="0,10,0,0" IsHitTestVisible="False" />
                             </StackPanel>
                         </Border>
 
@@ -168,7 +173,7 @@
                                     <TextBlock Text="{Binding ClaudeFileUpdateText}" Style="{StaticResource ValueText}" />
                                     <TextBlock Text="CodexPrompt.md" Style="{StaticResource Caption}" />
                                     <TextBlock Text="{Binding CodexFileUpdateText}" Style="{StaticResource ValueText}" />
-                                    <TextBlock Text="File contents are never shown here." Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" />
+                                    <TextBlock Text="File contents are never shown here." Foreground="{DynamicResource SecondaryTextBrush}" FontSize="11" />
                                 </StackPanel>
                             </Border>
                         </Grid>
@@ -180,7 +185,7 @@
                             <TextBlock Text="Activity" FontSize="20" FontWeight="SemiBold" />
                             <Button DockPanel.Dock="Right" Content="Refresh" Command="{Binding LoadActivityCommand}" />
                         </DockPanel>
-                        <TextBlock Text="Prompt and report bodies are redacted from application logs." Foreground="{StaticResource WarningBrush}" Margin="0,0,0,12" />
+                        <TextBlock Text="Prompt and report bodies are redacted from application logs." Foreground="{DynamicResource WarningBrush}" Margin="0,0,0,12" />
                         <DataGrid ItemsSource="{Binding ActivityEntries}" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column" GridLinesVisibility="Horizontal" MinHeight="420">
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="Time" Binding="{Binding TimestampUtc, StringFormat={}{0:HH:mm:ss}}" Width="90" />
@@ -211,7 +216,7 @@
                                 </StackPanel>
                             </Border>
                         </Grid>
-                        <Border Style="{StaticResource PanelStyle}" Background="#FFF8E7">
+                        <Border Style="{StaticResource PanelStyle}" Background="{DynamicResource WarningSurfaceBrush}">
                             <TextBlock Text="Delivery receipt verification is not implemented. Live mode remains unavailable and the application will not represent an attempted send as delivered." TextWrapping="Wrap" />
                         </Border>
                     </StackPanel>
@@ -237,7 +242,7 @@
                                     <TextBlock Text="Automation safety" Style="{StaticResource SectionTitle}" />
                                     <CheckBox IsChecked="True" IsEnabled="False" Content="Dry Run — simulate delivery" Margin="0,0,0,8" />
                                     <CheckBox IsChecked="False" IsEnabled="False" Content="Allow Live mode" Margin="0,0,0,8" />
-                                    <TextBlock Text="Live mode is unavailable because no registered adapter can verify delivery. This reason remains visible by design." TextWrapping="Wrap" Foreground="{StaticResource WarningBrush}" />
+                                    <TextBlock Text="Live mode is unavailable because no registered adapter can verify delivery. This reason remains visible by design." TextWrapping="Wrap" Foreground="{DynamicResource WarningBrush}" />
                                 </StackPanel>
                             </Border>
                         </Grid>
@@ -262,20 +267,103 @@
                                     <TextBlock Text="Notifications and startup" Style="{StaticResource SectionTitle}" />
                                     <CheckBox IsChecked="{Binding NotificationsEnabled}" Content="Enable Windows notifications" Margin="0,0,0,10" />
                                     <CheckBox IsChecked="{Binding StartMinimized}" Content="Start minimized" Margin="0,0,0,10" />
-                                    <TextBlock Text="Settings are validated and written as a single transaction. A partial save cannot occur." TextWrapping="Wrap" Foreground="{StaticResource SecondaryTextBrush}" />
+                                    <CheckBox IsChecked="{Binding DarkTheme}" Content="Use dark theme" Margin="0,0,0,10" />
+                                    <TextBlock Text="Settings are validated and written as a single transaction. A partial save cannot occur." TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" />
                                 </StackPanel>
                             </Border>
                         </Grid>
-                        <Button Content="Save settings" Command="{Binding SaveSettingsCommand}" HorizontalAlignment="Right" Background="{StaticResource AccentBrush}" Foreground="White" />
+                        <Button Content="Save settings" Command="{Binding SaveSettingsCommand}" HorizontalAlignment="Right" Background="{DynamicResource AccentBrush}" Foreground="{DynamicResource AccentTextBrush}" />
+                    </StackPanel>
+
+                    <!-- Setup wizard -->
+                    <StackPanel Visibility="{Binding IsSetup, Converter={StaticResource BooleanToVisibility}}">
+                        <TextBlock Text="Agent Bridge setup" FontSize="20" FontWeight="SemiBold" />
+                        <TextBlock Text="{Binding SetupStepTitle}" FontSize="15" FontWeight="SemiBold" Margin="0,4,0,12" />
+                        <UniformGrid Columns="5" Margin="0,0,12,16">
+                            <TextBlock Text="1  Safety" TextAlignment="Center" />
+                            <TextBlock Text="2  Project" TextAlignment="Center" />
+                            <TextBlock Text="3  Protocol" TextAlignment="Center" />
+                            <TextBlock Text="4  Readiness" TextAlignment="Center" />
+                            <TextBlock Text="5  Review" TextAlignment="Center" />
+                        </UniformGrid>
+                        <ProgressBar Minimum="1" Maximum="5" Value="{Binding SetupStep, Mode=OneWay}" Height="5" Margin="0,0,12,16" />
+
+                        <Border Style="{StaticResource PanelStyle}" Visibility="{Binding IsSetupWelcome, Converter={StaticResource BooleanToVisibility}}">
+                            <StackPanel>
+                                <TextBlock Text="Welcome and safety" Style="{StaticResource SectionTitle}" />
+                                <TextBlock Text="Agent Bridge coordinates a supervised file-based loop between Claude and Codex. This setup validates your project without changing it." TextWrapping="Wrap" Margin="0,0,0,12" />
+                                <Border Background="{DynamicResource WarningSurfaceBrush}" BorderBrush="{DynamicResource WarningBrush}" BorderThickness="1" Padding="12">
+                                    <TextBlock Text="Dry Run is mandatory in this build. No clicks, keystrokes, or messages are sent to either desktop application." TextWrapping="Wrap" />
+                                </Border>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource PanelStyle}" Visibility="{Binding IsSetupProject, Converter={StaticResource BooleanToVisibility}}">
+                            <StackPanel>
+                                <TextBlock Text="Project folder" Style="{StaticResource SectionTitle}" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <TextBox Text="{Binding ProjectPath, UpdateSourceTrigger=PropertyChanged}" />
+                                    <Button Grid.Column="1" Content="Browse…" Command="{Binding BrowseProjectCommand}" Margin="8,0,0,0" />
+                                </Grid>
+                                <TextBlock Text="Validation is read-only. A Git repository is recommended but not required." Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,10,0,0" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource PanelStyle}" Visibility="{Binding IsSetupProtocol, Converter={StaticResource BooleanToVisibility}}">
+                            <StackPanel>
+                                <TextBlock Text="Protocol files" Style="{StaticResource SectionTitle}" />
+                                <TextBlock Text="CLAUDE REPORT FILE" Style="{StaticResource Caption}" />
+                                <TextBox Text="{Binding ClaudeReportFileName, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,10" />
+                                <TextBlock Text="CODEX PROMPT FILE" Style="{StaticResource Caption}" />
+                                <TextBox Text="{Binding CodexPromptFileName, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,10" />
+                                <TextBlock Text="Only simple filenames in the project root are accepted. Missing files are allowed and may be created later by the agents." TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource PanelStyle}" Visibility="{Binding IsSetupAgents, Converter={StaticResource BooleanToVisibility}}">
+                            <StackPanel>
+                                <TextBlock Text="Desktop readiness" Style="{StaticResource SectionTitle}" />
+                                <TextBlock Text="Claude Desktop" FontWeight="SemiBold" />
+                                <TextBlock Text="{Binding ClaudeDiagnostics}" TextWrapping="Wrap" Margin="0,3,0,12" />
+                                <TextBlock Text="ChatGPT Desktop (Codex)" FontWeight="SemiBold" />
+                                <TextBlock Text="{Binding CodexDiagnostics}" TextWrapping="Wrap" Margin="0,3,0,12" />
+                                <Border Background="{DynamicResource WarningSurfaceBrush}" Padding="12">
+                                    <TextBlock Text="Conversation discovery and verified message delivery are not implemented. Setup can finish, but Live mode remains unavailable." TextWrapping="Wrap" />
+                                </Border>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource PanelStyle}" Visibility="{Binding IsSetupReview, Converter={StaticResource BooleanToVisibility}}">
+                            <StackPanel>
+                                <TextBlock Text="Review and finish" Style="{StaticResource SectionTitle}" />
+                                <TextBlock Text="PROJECT" Style="{StaticResource Caption}" />
+                                <TextBlock Text="{Binding ProjectPath}" Style="{StaticResource ValueText}" />
+                                <TextBlock Text="PROTOCOL" Style="{StaticResource Caption}" />
+                                <TextBlock Text="{Binding ClaudeReportFileName}" />
+                                <TextBlock Text="{Binding CodexPromptFileName}" Margin="0,2,0,10" />
+                                <TextBlock Text="MODE" Style="{StaticResource Caption}" />
+                                <TextBlock Text="Dry Run — no desktop input" Style="{StaticResource ValueText}" />
+                                <TextBlock Text="Finishing saves all settings atomically. If validation fails, nothing is written." TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="{DynamicResource SubtleBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" Padding="12" Margin="0,0,12,12">
+                            <TextBlock Text="{Binding SetupValidation}" TextWrapping="Wrap" automation:AutomationProperties.LiveSetting="Polite" />
+                        </Border>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,4,0">
+                            <Button Content="Back" Command="{Binding SetupBackCommand}" />
+                            <Button Content="{Binding SetupNextText}" Command="{Binding SetupNextCommand}" Background="{DynamicResource AccentBrush}" Foreground="{DynamicResource AccentTextBrush}" />
+                        </StackPanel>
                     </StackPanel>
                 </Grid>
             </ScrollViewer>
         </Grid>
 
-        <Border Grid.Row="3" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,1,0,0" Padding="12,6">
+        <Border Grid.Row="3" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="0,1,0,0" Padding="12,6">
             <DockPanel>
-                <TextBlock Text="Service connected" Foreground="{StaticResource VerifiedBrush}" DockPanel.Dock="Left" />
-                <TextBlock Text="{Binding OperationMessage}" Foreground="{StaticResource SecondaryTextBrush}" TextAlignment="Right" />
+                <TextBlock Text="Service connected" Foreground="{DynamicResource VerifiedBrush}" DockPanel.Dock="Left" />
+                <TextBlock Text="{Binding OperationMessage}" Foreground="{DynamicResource SecondaryTextBrush}" TextAlignment="Right" />
             </DockPanel>
         </Border>
     </Grid>

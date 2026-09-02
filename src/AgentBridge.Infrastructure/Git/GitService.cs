@@ -14,6 +14,8 @@ namespace AgentBridge.Infrastructure.Git;
 /// </summary>
 public sealed class GitService(ILogger<GitService> logger) : IGitService
 {
+    private static readonly Lazy<string> GitExecutable = new(ResolveGitExecutable);
+
     public async Task<GitRepositoryStatus> GetStatusAsync(string repositoryPath, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(repositoryPath) || !Directory.Exists(repositoryPath))
@@ -83,7 +85,7 @@ public sealed class GitService(ILogger<GitService> logger) : IGitService
     {
         var psi = new ProcessStartInfo
         {
-            FileName = "git",
+            FileName = GitExecutable.Value,
             WorkingDirectory = workingDirectory,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -114,6 +116,39 @@ public sealed class GitService(ILogger<GitService> logger) : IGitService
             logger.LogWarning(ex, "Failed to execute 'git {Args}' in {Dir}.", string.Join(' ', arguments), workingDirectory);
             return new GitCommandResult(false, string.Empty, ex.Message);
         }
+    }
+
+    private static string ResolveGitExecutable()
+    {
+        var executableName = OperatingSystem.IsWindows() ? "git.exe" : "git";
+        var pathEntries = (Environment.GetEnvironmentVariable("PATH") ?? string.Empty)
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        foreach (var directory in pathEntries)
+        {
+            try
+            {
+                var candidate = Path.Combine(directory.Trim('"'), executableName);
+                if (File.Exists(candidate)) return candidate;
+            }
+            catch (ArgumentException)
+            {
+                // Ignore malformed inherited PATH entries and continue to known locations.
+            }
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            var knownCandidates = new[]
+            {
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Git", "cmd", "git.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Git", "cmd", "git.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Git", "cmd", "git.exe"),
+            };
+            var known = knownCandidates.FirstOrDefault(File.Exists);
+            if (known is not null) return known;
+        }
+
+        return executableName;
     }
 
     private readonly record struct GitCommandResult(bool Success, string StandardOutput, string StandardError);

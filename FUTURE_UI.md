@@ -1,8 +1,9 @@
 # UI requirements and implementation status
 
-> The first WPF increment now exists in `AgentBridge.App`. Dashboard, Activity,
-> Diagnostics, and Settings are functional. Sections below remain the contract
-> for the still-deferred wizard, tray, rich recovery, and verified Live delivery.
+> The Dry Run WPF product now exists in `AgentBridge.App`. Dashboard, Activity,
+> Diagnostics, Settings, Setup, guarded recovery, tray/notifications,
+> single-instance activation, and light/dark themes are functional. Sections
+> below remain the contract for verified Live delivery and optional richer views.
 
 The backend built in this phase is fully independent of any presentation
 technology. This document is the contract the future dashboard/tray/settings/
@@ -125,14 +126,10 @@ the state machine.
 
 ## Explicitly NOT built yet (do not assume otherwise)
 
-- Real Windows toast notifications — `INotificationService` currently has
-  only `NullNotificationService` (logs instead of showing a toast). The
-  interface is stable; a `ToastNotificationService` implementation (likely via
-  `Microsoft.Toolkit.Uwp.Notifications` or `CommunityToolkit.WinUI.Notifications`)
-  is a UI-phase task.
-- System tray integration, start-minimized behavior, start-on-Windows-startup.
+- Packaged modern Windows toast notifications. The current desktop build uses
+  native tray balloon notifications through `DesktopNotificationService`.
+- Start-on-Windows-login registration. Start-minimized and tray behavior are implemented.
 - The setup wizard's UI Automation-dependent steps (3-9 in the original
   spec's sequence).
-- Dark-theme switching and the complete responsive/component variants from the
-  approved design. The implemented light WPF shell is documented in
-  `UI_DESIGN_REVIEW.md`.
+- Optional richer Activity filtering/export and recovery timeline variants from
+  the approved design. Light/dark theme switching is implemented.

@@ -10,7 +10,9 @@ Date: 2026-09-02. Original scope: backend-first phase (state machine, orchestrat
 file watcher, persistence, Git integration, retry/timeout, fake agent
 adapters, tests). **Update:** a first functional WPF shell now implements the
 Dashboard, Activity, Diagnostics, and Settings surfaces. Real UI Automation
-message delivery remains deferred — see `FUTURE_UI.md`, `UI_DESIGN_REVIEW.md`,
+message delivery remains deferred. The Dry Run desktop experience now also
+includes Setup, guarded recovery, tray/notifications, single-instance behavior,
+and light/dark themes — see `FUTURE_UI.md`, `UI_DESIGN_REVIEW.md`,
 and `UI_AUTOMATION.md`.
 
 ## Requirement status
@@ -104,8 +106,8 @@ done — nothing above is a known-and-ignored defect.
   at the send step, by design (it never pretends to have sent something).
 - Conversation targeting (`ClaudeConversationIdentifier` /
   `CodexConversationIdentifier`) is accepted in configuration but unused.
-- No installer or tray; notifications still resolve to the null/log implementation.
-- The first WPF shell does not yet include the full wizard, dark theme, or rich recovery timeline.
+- No installer or start-on-login registration; packaged modern toasts remain a release enhancement.
+- The WPF shell does not yet include the optional rich recovery timeline or advanced Activity filtering/export.
 
 ## Recommended next phase
 

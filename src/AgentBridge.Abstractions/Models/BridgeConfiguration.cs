@@ -68,6 +68,8 @@ public sealed record BridgeConfiguration
 
     public bool StartMinimized { get; init; }
 
+    public bool DarkTheme { get; init; }
+
     public bool NotificationsEnabled { get; init; } = true;
 
     public bool DryRun { get; init; } = true;

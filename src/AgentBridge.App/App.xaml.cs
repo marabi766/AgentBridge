@@ -6,7 +6,6 @@ using AgentBridge.Fakes;
 using AgentBridge.Infrastructure.FileWatching;
 using AgentBridge.Infrastructure.Git;
 using AgentBridge.Infrastructure.Logging;
-using AgentBridge.Infrastructure.Notifications;
 using AgentBridge.Infrastructure.Paths;
 using AgentBridge.Infrastructure.Persistence;
 using AgentBridge.Infrastructure.Services;
@@ -18,13 +17,27 @@ using System.Windows;
 
 namespace AgentBridge.App;
 
-public partial class App : Application
+public partial class App : System.Windows.Application
 {
     private IHost? _host;
+    private SingleInstanceCoordinator? _singleInstance;
 
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        _singleInstance = new SingleInstanceCoordinator(() => Dispatcher.BeginInvoke(() =>
+        {
+            if (MainWindow is MainWindow window)
+            {
+                window.ShowFromTray();
+            }
+        }));
+        if (!_singleInstance.IsPrimary)
+        {
+            Shutdown();
+            return;
+        }
+
         AppPaths.EnsureDirectoriesExist();
 
         var builder = Host.CreateApplicationBuilder(e.Args);
@@ -52,6 +65,8 @@ public partial class App : Application
             }
         }
 
+        _singleInstance?.Dispose();
+
         base.OnExit(e);
     }
 
@@ -69,7 +84,8 @@ public partial class App : Application
         builder.Services.AddSingleton<IGitService, GitService>();
         builder.Services.AddSingleton<IProjectService, ProjectService>();
         builder.Services.AddSingleton<ISettingsService, SettingsService>();
-        builder.Services.AddSingleton<INotificationService, NullNotificationService>();
+        builder.Services.AddSingleton<DesktopNotificationService>();
+        builder.Services.AddSingleton<INotificationService>(sp => sp.GetRequiredService<DesktopNotificationService>());
         builder.Services.AddSingleton<ITemplateEngine, PlaceholderTemplateEngine>();
         builder.Services.AddSingleton<IRetryPolicy, ExponentialBackoffRetryPolicy>();
         builder.Services.AddSingleton<ILogService>(_ => new FileLogService(AppPaths.LogsDirectory));

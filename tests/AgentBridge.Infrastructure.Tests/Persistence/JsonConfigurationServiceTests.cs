@@ -29,7 +29,7 @@ public sealed class JsonConfigurationServiceTests : IDisposable
     public async Task SaveThenLoad_RoundTrips()
     {
         var service = CreateService();
-        var config = BridgeConfiguration.CreateDefault() with { ProjectPath = "C:/some/project", MaximumIterations = 12, DryRun = false };
+        var config = BridgeConfiguration.CreateDefault() with { ProjectPath = "C:/some/project", MaximumIterations = 12, DryRun = false, DarkTheme = true };
 
         await service.SaveAsync(config, CancellationToken.None);
         var loaded = await service.LoadAsync(CancellationToken.None);
@@ -37,6 +37,7 @@ public sealed class JsonConfigurationServiceTests : IDisposable
         Assert.Equal("C:/some/project", loaded.ProjectPath);
         Assert.Equal(12, loaded.MaximumIterations);
         Assert.False(loaded.DryRun);
+        Assert.True(loaded.DarkTheme);
     }
 
     [Fact]

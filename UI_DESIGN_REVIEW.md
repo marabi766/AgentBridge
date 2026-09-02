@@ -12,7 +12,7 @@ The archive is a design/handoff document rather than an executable application p
 ## Required implementation constraints
 
 - Live mode remains unavailable until both selected adapters expose real delivery and a positive verification mechanism. The dark Live-mode screen is a future-state specification only.
-- `Retry step`, one-time timeout extension, manual `Mark as delivered`, wizard progress persistence, delivery receipts, tray behavior, and dark-theme switching require backend/application contracts not currently present. The UI must not display these as working controls until those contracts exist.
+- `Retry step`, one-time timeout extension, manual `Mark as delivered`, wizard progress persistence, and delivery receipts require backend/application contracts not currently present. The UI must not display these as working controls until those contracts exist. Tray behavior and dark-theme switching are now implemented.
 - The design's eight visual cycle positions are a presentation grouping over the twelve `BridgeState` values; the state machine remains authoritative.
 - The verified-green token is reserved for confirmed file-hash changes or a future verified delivery outcome. Agent process detection or an attempted send is not enough.
 - Protocol/report bodies must not be rendered on the dashboard or written to logs.
@@ -36,4 +36,4 @@ The archive is a design/handoff document rather than an executable application p
 
 The initial WPF shell implements the dashboard, persistent Dry Run banner, command controls, Activity viewer, agent Diagnostics, and atomic Settings editor. Empty project configuration opens Settings on first launch. Live mode is visibly disabled with its reason. Stop requires confirmation and keeps progress. Keyboard shortcuts are F5 (refresh), Ctrl+R (start), Ctrl+P (pause), and Ctrl+Shift+S (stop).
 
-Deferred design surfaces are the full multi-step wizard, dark-theme switching, tray/minimized behavior, rich recovery timeline, advanced Activity filtering/export, and any controls that depend on verified desktop delivery.
+The second increment adds a five-step capability-aware setup wizard, guarded recovery reset, light/dark themes, tray/minimized behavior, native Windows notifications, and single-instance activation. Deferred design surfaces are the optional rich recovery timeline, advanced Activity filtering/export, wizard progress persistence, and all controls that depend on verified desktop delivery.

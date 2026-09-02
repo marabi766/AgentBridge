@@ -11,6 +11,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private readonly ISettingsService _settingsService;
     private readonly ILogService _logService;
     private readonly IAgentDiagnosticsService _diagnosticsService;
+    private readonly IProjectService _projectService;
     private readonly SynchronizationContext _uiContext;
     private BridgeConfiguration _configuration = BridgeConfiguration.CreateDefault();
     private BridgeStatusView? _status;
@@ -27,17 +28,22 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private int _fileDebounceMilliseconds = 400;
     private bool _notificationsEnabled = true;
     private bool _startMinimized;
+    private bool _darkTheme;
+    private int _setupStep = 1;
+    private string _setupValidation = "No project validation has run yet.";
 
     public MainWindowViewModel(
         IOrchestratorService orchestrator,
         ISettingsService settingsService,
         ILogService logService,
-        IAgentDiagnosticsService diagnosticsService)
+        IAgentDiagnosticsService diagnosticsService,
+        IProjectService projectService)
     {
         _orchestrator = orchestrator;
         _settingsService = settingsService;
         _logService = logService;
         _diagnosticsService = diagnosticsService;
+        _projectService = projectService;
         _uiContext = SynchronizationContext.Current ?? new SynchronizationContext();
         _orchestrator.StatusChanged += OnStatusChanged;
 
@@ -50,6 +56,10 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         TestClaudeCommand = new AsyncCommand(TestClaudeAsync);
         TestCodexCommand = new AsyncCommand(TestCodexAsync);
         SaveSettingsCommand = new AsyncCommand(SaveSettingsAsync);
+        BrowseProjectCommand = new RelayCommand(_ => BrowseProject());
+        SetupNextCommand = new AsyncCommand(SetupNextAsync);
+        SetupBackCommand = new RelayCommand(_ => SetupStep--, _ => SetupStep > 1);
+        ResetStateCommand = new AsyncCommand(ResetStateAsync, () => HasError);
         NavigateCommand = new RelayCommand(p => CurrentPage = p?.ToString() ?? "Dashboard");
     }
 
@@ -62,9 +72,17 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public AsyncCommand TestClaudeCommand { get; }
     public AsyncCommand TestCodexCommand { get; }
     public AsyncCommand SaveSettingsCommand { get; }
+    public RelayCommand BrowseProjectCommand { get; }
+    public AsyncCommand SetupNextCommand { get; }
+    public RelayCommand SetupBackCommand { get; }
+    public AsyncCommand ResetStateCommand { get; }
     public RelayCommand NavigateCommand { get; }
     public ObservableCollection<LogEntry> ActivityEntries { get; } = [];
     public Func<bool>? ConfirmStop { get; set; }
+    public Func<bool>? ConfirmReset { get; set; }
+    public Func<string?>? SelectProjectFolder { get; set; }
+    public Action<bool>? ThemeChanged { get; set; }
+    public Action<bool>? NotificationsChanged { get; set; }
 
     public BridgeStatusView? Status { get => _status; private set { if (SetProperty(ref _status, value)) RaiseStatusProperties(); } }
     public string CurrentPage { get => _currentPage; set { if (SetProperty(ref _currentPage, value)) RaisePageProperties(); } }
@@ -76,8 +94,9 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public bool IsActivity => CurrentPage == "Activity";
     public bool IsDiagnostics => CurrentPage == "Diagnostics";
     public bool IsSettings => CurrentPage == "Settings";
+    public bool IsSetup => CurrentPage == "Setup";
     public bool HasError => !string.IsNullOrWhiteSpace(Status?.LastError);
-    public bool CanStart => Status?.CurrentState is null or BridgeState.Idle or BridgeState.Stopped or BridgeState.Error;
+    public bool CanStart => Status?.CurrentState is null or BridgeState.Idle or BridgeState.Stopped;
     public bool CanPause => Status?.IsRunning == true;
     public bool CanResume => Status?.IsPaused == true;
     public bool CanStop => Status?.CurrentState is not (null or BridgeState.Idle or BridgeState.Stopped);
@@ -104,8 +123,58 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public int AgentTimeoutSeconds { get => _agentTimeoutSeconds; set => SetProperty(ref _agentTimeoutSeconds, value); }
     public int RetryCount { get => _retryCount; set => SetProperty(ref _retryCount, value); }
     public int FileDebounceMilliseconds { get => _fileDebounceMilliseconds; set => SetProperty(ref _fileDebounceMilliseconds, value); }
-    public bool NotificationsEnabled { get => _notificationsEnabled; set => SetProperty(ref _notificationsEnabled, value); }
+    public bool NotificationsEnabled
+    {
+        get => _notificationsEnabled;
+        set
+        {
+            if (SetProperty(ref _notificationsEnabled, value)) NotificationsChanged?.Invoke(value);
+        }
+    }
     public bool StartMinimized { get => _startMinimized; set => SetProperty(ref _startMinimized, value); }
+    public bool DarkTheme
+    {
+        get => _darkTheme;
+        set
+        {
+            if (SetProperty(ref _darkTheme, value)) ThemeChanged?.Invoke(value);
+        }
+    }
+    public bool ShouldStartMinimized => StartMinimized && !string.IsNullOrWhiteSpace(ProjectPath);
+    public int SetupStep
+    {
+        get => _setupStep;
+        private set
+        {
+            var bounded = Math.Clamp(value, 1, 5);
+            if (SetProperty(ref _setupStep, bounded))
+            {
+                OnPropertyChanged(nameof(SetupStepTitle));
+                OnPropertyChanged(nameof(SetupNextText));
+                OnPropertyChanged(nameof(IsSetupWelcome));
+                OnPropertyChanged(nameof(IsSetupProject));
+                OnPropertyChanged(nameof(IsSetupProtocol));
+                OnPropertyChanged(nameof(IsSetupAgents));
+                OnPropertyChanged(nameof(IsSetupReview));
+                SetupBackCommand.RaiseCanExecuteChanged();
+            }
+        }
+    }
+    public string SetupValidation { get => _setupValidation; private set => SetProperty(ref _setupValidation, value); }
+    public string SetupStepTitle => SetupStep switch
+    {
+        1 => "Welcome and safety",
+        2 => "Select and validate the project",
+        3 => "Confirm protocol files",
+        4 => "Test desktop readiness",
+        _ => "Review and finish",
+    };
+    public string SetupNextText => SetupStep == 5 ? "Finish setup" : "Next";
+    public bool IsSetupWelcome => SetupStep == 1;
+    public bool IsSetupProject => SetupStep == 2;
+    public bool IsSetupProtocol => SetupStep == 3;
+    public bool IsSetupAgents => SetupStep == 4;
+    public bool IsSetupReview => SetupStep == 5;
 
     public async Task InitializeAsync()
     {
@@ -113,7 +182,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         {
             _configuration = await _settingsService.GetCurrentAsync(CancellationToken.None);
             LoadSettings(_configuration);
-            if (string.IsNullOrWhiteSpace(_configuration.ProjectPath)) CurrentPage = "Settings";
+            if (string.IsNullOrWhiteSpace(_configuration.ProjectPath)) CurrentPage = "Setup";
             await RefreshAsync();
             await LoadActivityAsync();
         }
@@ -135,6 +204,68 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private Task StopSafelyAsync() => ConfirmStop?.Invoke() == false
         ? Task.CompletedTask
         : RunOperationAsync("Stopping…", _orchestrator.StopAsync);
+
+    private async Task ResetStateAsync()
+    {
+        if (ConfirmReset?.Invoke() != true) return;
+        await RunOperationAsync("Resetting recovery state…", _orchestrator.ResetStateAsync);
+    }
+
+    private void BrowseProject()
+    {
+        var selected = SelectProjectFolder?.Invoke();
+        if (!string.IsNullOrWhiteSpace(selected))
+        {
+            ProjectPath = selected;
+            SetupValidation = "Folder selected. Choose Next to validate it without changing any files.";
+        }
+    }
+
+    private async Task SetupNextAsync()
+    {
+        if (SetupStep == 2)
+        {
+            var candidate = BuildConfiguration();
+            var validation = await _projectService.ValidateProjectAsync(candidate, CancellationToken.None);
+            var facts = new[]
+            {
+                validation.PathExists ? "Folder exists and is readable." : "Folder is unavailable.",
+                validation.IsGitRepository ? "Git repository detected." : "Git repository not detected; Git status will be unavailable.",
+            };
+            SetupValidation = string.Join(" ", facts.Concat(validation.Errors).Concat(validation.Warnings));
+            if (!validation.IsValid) return;
+        }
+
+        if (SetupStep == 3)
+        {
+            var validation = await _settingsService.ValidateAsync(BuildConfiguration(), CancellationToken.None);
+            if (!validation.IsValid)
+            {
+                SetupValidation = string.Join(" ", validation.Errors);
+                return;
+            }
+            SetupValidation = "Protocol filenames are safe project-root filenames.";
+        }
+
+        if (SetupStep == 4)
+        {
+            await TestClaudeAsync();
+            await TestCodexAsync();
+            SetupValidation = "Readiness probes completed. Conversation discovery and verified delivery are not available, so Live mode stays disabled.";
+        }
+
+        if (SetupStep == 5)
+        {
+            if (await SaveSettingsCoreAsync())
+            {
+                CurrentPage = "Dashboard";
+                SetupStep = 1;
+            }
+            return;
+        }
+
+        SetupStep++;
+    }
 
     private async Task RefreshAsync()
     {
@@ -183,36 +314,46 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         catch (Exception ex) { CodexDiagnostics = $"Test failed: {ex.Message}"; }
     }
 
-    private async Task SaveSettingsAsync()
+    private async Task SaveSettingsAsync() => _ = await SaveSettingsCoreAsync();
+
+    private async Task<bool> SaveSettingsCoreAsync()
     {
-        var candidate = _configuration with
-        {
-            ProjectPath = ProjectPath.Trim(),
-            ClaudeReportFileName = ClaudeReportFileName.Trim(),
-            CodexPromptFileName = CodexPromptFileName.Trim(),
-            MaximumIterations = MaximumIterations,
-            AgentTimeoutSeconds = AgentTimeoutSeconds,
-            RetryCount = RetryCount,
-            FileDebounceMilliseconds = FileDebounceMilliseconds,
-            NotificationsEnabled = NotificationsEnabled,
-            StartMinimized = StartMinimized,
-            DryRun = true,
-        };
+        var candidate = BuildConfiguration();
         try
         {
             var result = await _settingsService.UpdateAsync(candidate, CancellationToken.None);
             if (!result.IsValid)
             {
                 OperationMessage = "Settings were not saved: " + string.Join(" ", result.Errors);
-                return;
+                return false;
             }
 
             _configuration = candidate;
             OperationMessage = "Settings saved atomically. Timing changes apply on the next run.";
             await RefreshAsync();
+            return true;
         }
-        catch (Exception ex) { OperationMessage = $"Settings were not saved: {ex.Message}"; }
+        catch (Exception ex)
+        {
+            OperationMessage = $"Settings were not saved: {ex.Message}";
+            return false;
+        }
     }
+
+    private BridgeConfiguration BuildConfiguration() => _configuration with
+    {
+        ProjectPath = ProjectPath.Trim(),
+        ClaudeReportFileName = ClaudeReportFileName.Trim(),
+        CodexPromptFileName = CodexPromptFileName.Trim(),
+        MaximumIterations = MaximumIterations,
+        AgentTimeoutSeconds = AgentTimeoutSeconds,
+        RetryCount = RetryCount,
+        FileDebounceMilliseconds = FileDebounceMilliseconds,
+        NotificationsEnabled = NotificationsEnabled,
+        StartMinimized = StartMinimized,
+        DarkTheme = DarkTheme,
+        DryRun = true,
+    };
 
     private void LoadSettings(BridgeConfiguration value)
     {
@@ -225,6 +366,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         FileDebounceMilliseconds = value.FileDebounceMilliseconds;
         NotificationsEnabled = value.NotificationsEnabled;
         StartMinimized = value.StartMinimized;
+        DarkTheme = value.DarkTheme;
     }
 
     private void OnStatusChanged(object? sender, BridgeStatusView status) =>
@@ -238,6 +380,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         PauseCommand.RaiseCanExecuteChanged();
         ResumeCommand.RaiseCanExecuteChanged();
         StopCommand.RaiseCanExecuteChanged();
+        ResetStateCommand.RaiseCanExecuteChanged();
     }
 
     private void RaisePageProperties()
@@ -246,6 +389,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsActivity));
         OnPropertyChanged(nameof(IsDiagnostics));
         OnPropertyChanged(nameof(IsSettings));
+        OnPropertyChanged(nameof(IsSetup));
         if (IsActivity) LoadActivityCommand.Execute(null);
     }
 
