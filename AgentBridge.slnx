@@ -1,0 +1,15 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AgentBridge.Abstractions/AgentBridge.Abstractions.csproj" />
+    <Project Path="src/AgentBridge.App/AgentBridge.App.csproj" />
+    <Project Path="src/AgentBridge.Core/AgentBridge.Core.csproj" />
+    <Project Path="src/AgentBridge.Fakes/AgentBridge.Fakes.csproj" />
+    <Project Path="src/AgentBridge.Infrastructure/AgentBridge.Infrastructure.csproj" />
+    <Project Path="src/AgentBridge.UIAutomation/AgentBridge.UIAutomation.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AgentBridge.Core.Tests/AgentBridge.Core.Tests.csproj" />
+    <Project Path="tests/AgentBridge.Infrastructure.Tests/AgentBridge.Infrastructure.Tests.csproj" />
+    <Project Path="tests/AgentBridge.Integration.Tests/AgentBridge.Integration.Tests.csproj" />
+  </Folder>
+</Solution>
