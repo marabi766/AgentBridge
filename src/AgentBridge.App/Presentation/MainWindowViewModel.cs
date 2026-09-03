@@ -29,6 +29,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private int _retryCount = 3;
     private int _fileDebounceMilliseconds = 400;
     private bool _notificationsEnabled = true;
+    private bool _autoStart;
     private bool _startMinimized;
     private bool _darkTheme;
     private bool _dryRun = true;
@@ -137,6 +138,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             if (SetProperty(ref _notificationsEnabled, value)) NotificationsChanged?.Invoke(value);
         }
     }
+    public bool AutoStart { get => _autoStart; set => SetProperty(ref _autoStart, value); }
     public bool StartMinimized { get => _startMinimized; set => SetProperty(ref _startMinimized, value); }
     public bool DryRun { get => _dryRun; set => SetProperty(ref _dryRun, value); }
     public bool DarkTheme
@@ -191,6 +193,10 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             LoadSettings(_configuration);
             if (string.IsNullOrWhiteSpace(_configuration.ProjectPath)) CurrentPage = "Setup";
             await RefreshAsync();
+            if (_configuration.AutoStart && CanStart)
+            {
+                await RunOperationAsync("Auto-starting…", _orchestrator.StartAsync);
+            }
             await LoadActivityAsync();
         }
         catch (Exception ex) { OperationMessage = $"Startup failed safely: {ex.Message}"; }
@@ -374,6 +380,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         RetryCount = RetryCount,
         FileDebounceMilliseconds = FileDebounceMilliseconds,
         NotificationsEnabled = NotificationsEnabled,
+        AutoStart = AutoStart,
         StartMinimized = StartMinimized,
         DarkTheme = DarkTheme,
         DryRun = DryRun,
@@ -391,6 +398,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         RetryCount = value.RetryCount;
         FileDebounceMilliseconds = value.FileDebounceMilliseconds;
         NotificationsEnabled = value.NotificationsEnabled;
+        AutoStart = value.AutoStart;
         StartMinimized = value.StartMinimized;
         DarkTheme = value.DarkTheme;
         DryRun = value.DryRun;

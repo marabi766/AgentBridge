@@ -269,6 +269,7 @@
                                 <StackPanel>
                                     <TextBlock Text="Notifications and startup" Style="{StaticResource SectionTitle}" />
                                     <CheckBox IsChecked="{Binding NotificationsEnabled}" Content="Enable Windows notifications" Margin="0,0,0,10" />
+                                    <CheckBox IsChecked="{Binding AutoStart}" Content="Start the bridge automatically when the app opens" Margin="0,0,0,10" />
                                     <CheckBox IsChecked="{Binding StartMinimized}" Content="Start minimized" Margin="0,0,0,10" />
                                     <CheckBox IsChecked="{Binding DarkTheme}" Content="Use dark theme" Margin="0,0,0,10" />
                                     <TextBlock Text="Settings are validated and written as a single transaction. A partial save cannot occur." TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" />
