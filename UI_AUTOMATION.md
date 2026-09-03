@@ -111,6 +111,11 @@ the live installed applications:
 - Claude: `Conversation=VERIFIED Input=VERIFIED`
 - ChatGPT/Codex: `Conversation=VERIFIED Input=VERIFIED`
 
-No text was entered and no control was invoked. A real one-message canary was
-intentionally not performed because it is an external side effect and needs
-separate action-time user approval. Dry Run remains the default.
+A user-approved real one-message canary was performed on 2026-09-03. Claude
+received the prompt and began processing it, as confirmed by the user and the
+live accessibility tree. The canary exposed two edge cases and the sender was
+hardened immediately afterward: it now refuses a non-empty editor, verifies
+that setting the draft produced the exact requested value before invoking
+Send, and accepts only an exact rendered message or Claude's exact
+`You said: <message>` accessibility wrapper as the positive receipt. Dry Run
+remains the default.

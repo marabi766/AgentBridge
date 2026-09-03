@@ -44,7 +44,7 @@ This approval applies to the backend corrective gate, not to the unfinished prod
 ## Validation Evidence
 
 - Debug build: passed with 0 warnings and 0 errors.
-- Debug tests: 117/117 passed (48 core, 45 infrastructure, 8 integration, 16 UI Automation).
+- Release tests after canary hardening: 121/121 passed (48 core, 45 infrastructure, 8 integration, 20 UI Automation).
 - Release build: passed with 0 warnings and 0 errors.
 - Release build: passed with 0 warnings and 0 errors.
 - Release tests: 99/99 passed (48 core, 43 infrastructure, 8 integration).
@@ -55,7 +55,7 @@ This approval applies to the backend corrective gate, not to the unfinished prod
 
 ## Remaining Product Work
 
-1. Perform one explicitly approved real-message canary per application.
+1. Complete a controlled ChatGPT-side UI Automation canary (Claude-side canary completed and hardened).
 2. Validate one bounded real loop and app-version drift behavior.
 3. Add rich Activity filtering/export and the optional recovery timeline.
 4. Complete end-to-end UI tests with controlled desktop applications.
@@ -70,4 +70,4 @@ This approval applies to the backend corrective gate, not to the unfinished prod
 
 ## Next Gate
 
-The next gate is a user-approved controlled Live canary. Wrong-conversation safeguards and positive receipt logic are implemented; no real message has yet been sent by this milestone.
+The Claude-side controlled Live canary is complete. The next gate is the ChatGPT-side canary followed by one bounded real loop; Dry Run remains the default.

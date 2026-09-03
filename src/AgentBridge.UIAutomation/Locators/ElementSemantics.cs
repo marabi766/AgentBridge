@@ -54,6 +54,14 @@ public static partial class ElementSemantics
         string.Equals(controlType, "Button", StringComparison.OrdinalIgnoreCase)
         && string.Equals(Normalize(name), "Send", StringComparison.OrdinalIgnoreCase);
 
+    public static bool IsExactRenderedReceipt(string? renderedName, string message)
+    {
+        var rendered = Normalize(renderedName);
+        var expected = Normalize(message);
+        return string.Equals(rendered, expected, StringComparison.Ordinal)
+            || string.Equals(rendered, $"You said: {expected}", StringComparison.Ordinal);
+    }
+
     [GeneratedRegex(@"\s+")]
     private static partial Regex Whitespace();
 }

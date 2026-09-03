@@ -4,17 +4,28 @@ using FlaUI.UIA3;
 using AgentBridge.UIAutomation.Locators;
 using Microsoft.Extensions.Logging.Abstractions;
 
-if (args.Length is < 1 or > 2)
+var sendFileMode = args.Length == 4 && string.Equals(args[0], "--send-file", StringComparison.Ordinal);
+if (!sendFileMode && args.Length is < 1 or > 2)
 {
     Console.Error.WriteLine("Usage: AgentBridge.UIAutomation.Probe <process-name> [name-filter]");
+    Console.Error.WriteLine("   or: AgentBridge.UIAutomation.Probe --send-file <process-name> <exact-title> <message-file>");
     return 2;
 }
 
-using var process = Process.GetProcessesByName(args[0])
+var processName = sendFileMode ? args[1] : args[0];
+var titleFilter = sendFileMode ? args[2] : args.Length == 2 ? args[1] : null;
+var messageFile = sendFileMode ? Path.GetFullPath(args[3]) : null;
+if (sendFileMode && !File.Exists(messageFile))
+{
+    Console.Error.WriteLine($"Message file does not exist: {messageFile}");
+    return 2;
+}
+
+using var process = Process.GetProcessesByName(processName)
     .FirstOrDefault(candidate => candidate.MainWindowHandle != IntPtr.Zero);
 if (process is null)
 {
-    Console.Error.WriteLine($"No visible main window found for '{args[0]}'.");
+    Console.Error.WriteLine($"No visible main window found for '{processName}'.");
     return 1;
 }
 
@@ -32,7 +43,7 @@ foreach (var element in elements)
 {
     var type = Safe(() => element.ControlType.ToString());
     var name = Safe(() => element.Name).Replace('\r', ' ').Replace('\n', ' ');
-    var matchesFilter = args.Length == 2 && name.Contains(args[1], StringComparison.OrdinalIgnoreCase);
+    var matchesFilter = titleFilter is not null && name.Contains(titleFilter, StringComparison.OrdinalIgnoreCase);
     if (!matchesFilter && type is not ("Edit" or "Document" or "Button" or "ListItem" or "TreeItem" or "TabItem" or "Pane"))
     {
         continue;
@@ -44,15 +55,30 @@ foreach (var element in elements)
                       $"Enabled={Safe(() => element.IsEnabled.ToString())} Offscreen={Safe(() => element.IsOffscreen.ToString())} Patterns={patterns}");
 }
 
-if (args.Length == 2)
+if (titleFilter is not null)
 {
     var conversationLocator = new SemanticConversationLocator(NullLogger<SemanticConversationLocator>.Instance);
     var inputLocator = new SemanticInputLocator(NullLogger<SemanticInputLocator>.Instance);
-    var conversation = await conversationLocator.FindConversationAsync(root, args[1], CancellationToken.None);
+    var conversation = await conversationLocator.FindConversationAsync(root, titleFilter, CancellationToken.None);
     var input = conversation is null
         ? null
         : await inputLocator.FindInputBoxAsync(conversation, CancellationToken.None);
     Console.WriteLine($"READ-ONLY VERIFICATION Conversation={(conversation is null ? "NOT FOUND" : "VERIFIED")} Input={(input is null ? "NOT FOUND" : "VERIFIED")}");
+
+    if (sendFileMode)
+    {
+        if (conversation is null || input is null)
+        {
+            Console.Error.WriteLine("SEND REFUSED: target conversation or input was not uniquely verified.");
+            return 1;
+        }
+
+        var sender = new VerifiedMessageSender(NullLogger<VerifiedMessageSender>.Instance);
+        var message = await File.ReadAllTextAsync(messageFile!);
+        var delivered = await sender.SendAsync(conversation, input, message, CancellationToken.None);
+        Console.WriteLine($"SEND VERIFICATION: {(delivered ? "DELIVERED" : "NOT VERIFIED")}");
+        return delivered ? 0 : 1;
+    }
 }
 
 return 0;

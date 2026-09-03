@@ -32,9 +32,24 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
             }
             writablePattern = valuePattern;
 
+            if (!string.IsNullOrWhiteSpace(valuePattern.Value.ValueOrDefault))
+            {
+                logger.LogWarning("Message delivery refused: the target input already contains a user draft.");
+                return false;
+            }
+
             var normalizedMessage = ElementSemantics.Normalize(message);
             var receiptCountBefore = CountExactRenderedMessages(conversation, normalizedMessage);
             valuePattern.SetValue(message);
+            if (!string.Equals(
+                    ElementSemantics.Normalize(valuePattern.Value.ValueOrDefault),
+                    normalizedMessage,
+                    StringComparison.Ordinal))
+            {
+                TryClear(valuePattern);
+                logger.LogWarning("Message delivery refused: the editor did not contain exactly the requested message after setting the draft.");
+                return false;
+            }
 
             var sendButton = await FindUniqueSendButtonAsync(conversation, cancellationToken).ConfigureAwait(false);
             if (sendButton is null)
@@ -125,7 +140,7 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
 
     private static int CountExactRenderedMessages(AutomationElement conversation, string normalizedMessage) =>
         conversation.FindAllDescendants().Count(element =>
-            string.Equals(ElementSemantics.Normalize(Safe(() => element.Name)), normalizedMessage, StringComparison.Ordinal));
+            ElementSemantics.IsExactRenderedReceipt(Safe(() => element.Name), normalizedMessage));
 
     private static void TryClear(FlaUI.Core.Patterns.IValuePattern valuePattern)
     {

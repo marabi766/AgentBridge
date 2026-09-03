@@ -44,7 +44,7 @@ and `UI_AUTOMATION.md`.
 | Unit tests | Done | 38 tests in `AgentBridge.Core.Tests` |
 | Infrastructure tests | Done | 32 tests in `AgentBridge.Infrastructure.Tests` (real files, real git.exe) |
 | End-to-end simulation | Done | 8 tests in `AgentBridge.Integration.Tests`, real infra + fake adapters, multi-iteration, real disk writes |
-| Claude Desktop adapter | Implemented, canary pending | Exact active-title targeting, unique input selection, single Invoke, positive receipt verification |
+| Claude Desktop adapter | Implemented, canary completed | Exact active-title targeting, unique input selection, single Invoke, positive receipt verification; hardened from real canary findings |
 | ChatGPT Desktop/Codex adapter | Implemented, canary pending | Same fail-closed contract; read-only discovery verified against installed app |
 | UI Automation diagnostics | Done (basic) | `GetDiagnosticsAsync` dumps a live 3-level automation tree against the real installed apps |
 | Real application detection | Done | Verified against the actually-installed Claude Desktop and ChatGPT Desktop (MSIX packages) on this machine |
@@ -62,8 +62,8 @@ and `UI_AUTOMATION.md`.
 AgentBridge.Core.Tests:          48 passed, 0 failed
 AgentBridge.Infrastructure.Tests: 43 passed, 0 failed
 AgentBridge.Integration.Tests:     8 passed, 0 failed
-AgentBridge.UIAutomation.Tests:  16 passed, 0 failed
-Total:                           117 passed, 0 failed
+AgentBridge.UIAutomation.Tests:  20 passed, 0 failed
+Total:                           121 passed, 0 failed
 ```
 
 Run with: `dotnet test AgentBridge.slnx`
@@ -101,13 +101,13 @@ done — nothing above is a known-and-ignored defect.
 
 ## Known limitations (see UI_AUTOMATION.md and FUTURE_UI.md for detail)
 
-- Real message delivery has not yet received a user-approved one-message
-  canary against the installed applications. Read-only target/input discovery
-  has been verified for both apps.
+- Claude Desktop has received a user-approved one-message canary. ChatGPT-side
+  UI Automation still needs its controlled canary; read-only target/input
+  discovery has been verified for both apps.
 - No installer or start-on-login registration; packaged modern toasts remain a release enhancement.
 - The WPF shell does not yet include the optional rich recovery timeline or advanced Activity filtering/export.
 
 ## Recommended next phase
 
-With explicit user approval, perform one controlled real-message canary per
-application, then exercise one bounded two-agent loop before packaging.
+Perform the controlled ChatGPT-side UI Automation canary, then exercise one
+bounded two-agent loop before packaging.

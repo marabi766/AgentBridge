@@ -43,4 +43,15 @@ public sealed class ElementSemanticsTests
     [InlineData("Edit", "Send", false)]
     public void SendButton_RequiresExactButtonSemantics(string type, string name, bool expected) =>
         Assert.Equal(expected, ElementSemantics.IsSendButton(type, name));
+
+    [Theory]
+    [InlineData("Complete the task", "Complete the task", true)]
+    [InlineData("You said: Complete the task", "Complete the task", true)]
+    [InlineData("You said: prefixComplete the task", "Complete the task", false)]
+    [InlineData("Complete only part", "Complete the task", false)]
+    public void RenderedReceipt_RequiresExactMessageOrExactAccessibilityPrefix(
+        string rendered,
+        string message,
+        bool expected) =>
+        Assert.Equal(expected, ElementSemantics.IsExactRenderedReceipt(rendered, message));
 }
