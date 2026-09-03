@@ -117,5 +117,19 @@ live accessibility tree. The canary exposed two edge cases and the sender was
 hardened immediately afterward: it now refuses a non-empty editor, verifies
 that setting the draft produced the exact requested value before invoking
 Send, and accepts only an exact rendered message or Claude's exact
-`You said: <message>` accessibility wrapper as the positive receipt. Dry Run
-remains the default.
+`You said: <message>` accessibility wrapper as the positive receipt. A later
+empty-editor canary showed that UIA `SetValue` alone can update Chromium's DOM
+without synchronizing React's controlled-editor state. A reversible input pulse
+was also rejected because it did not preserve the exact value reliably. The
+sender therefore types a whitespace-normalized prompt through real keyboard
+input events only after foregrounding the verified target window and proving
+keyboard focus on the verified editor. It then re-verifies the complete
+normalized draft before invoking Send. Dry Run remains the default.
+
+Long handoffs use the two protocol files rather than copying their bodies into
+desktop editors: Codex overwrites `CodexPrompt.md`, Claude reads it and
+overwrites `ClaudeResultReport.md`, and Codex reads that report on the next
+cycle. Desktop delivery is therefore a short wake-up instruction. If a prior
+attempt leaves a draft, the sender resumes it only when its normalized content
+exactly matches the requested wake-up message; a different draft is preserved
+and delivery fails closed.

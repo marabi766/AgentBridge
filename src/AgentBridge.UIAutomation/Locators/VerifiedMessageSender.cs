@@ -1,4 +1,5 @@
 using FlaUI.Core.AutomationElements;
+using FlaUI.Core.Input;
 using Microsoft.Extensions.Logging;
 
 namespace AgentBridge.UIAutomation.Locators;
@@ -32,22 +33,53 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
             }
             writablePattern = valuePattern;
 
-            if (!string.IsNullOrWhiteSpace(valuePattern.Value.ValueOrDefault))
+            var normalizedMessage = ElementSemantics.Normalize(message);
+            var existingDraft = ElementSemantics.Normalize(valuePattern.Value.ValueOrDefault);
+            var resumeExactDraft = existingDraft.Length > 0;
+            if (resumeExactDraft && !string.Equals(existingDraft, normalizedMessage, StringComparison.Ordinal))
             {
-                logger.LogWarning("Message delivery refused: the target input already contains a user draft.");
+                logger.LogWarning(
+                    "Message delivery refused: the target input contains a different user draft. ExpectedLength={ExpectedLength} ActualLength={ActualLength}.",
+                    normalizedMessage.Length, existingDraft.Length);
                 return false;
             }
 
-            var normalizedMessage = ElementSemantics.Normalize(message);
             var receiptCountBefore = CountExactRenderedMessages(conversation, normalizedMessage);
-            valuePattern.SetValue(message);
+            var window = conversation.AsWindow();
+            if (window is null)
+            {
+                logger.LogWarning("Message delivery refused: the verified conversation root is not a window.");
+                return false;
+            }
+
+            window.SetForeground();
+            await Task.Delay(150, cancellationToken).ConfigureAwait(false);
+            if (!resumeExactDraft)
+            {
+                inputBox.Focus();
+                await Task.Delay(100, cancellationToken).ConfigureAwait(false);
+                if (!inputBox.Properties.HasKeyboardFocus.ValueOrDefault)
+                {
+                    logger.LogWarning("Message delivery refused: keyboard focus could not be verified on the target input.");
+                    return false;
+                }
+
+                Keyboard.Type(normalizedMessage);
+            }
+            else
+            {
+                logger.LogInformation("Resuming an existing draft that exactly matches the requested message.");
+            }
             if (!string.Equals(
                     ElementSemantics.Normalize(valuePattern.Value.ValueOrDefault),
                     normalizedMessage,
                     StringComparison.Ordinal))
             {
+                var actual = ElementSemantics.Normalize(valuePattern.Value.ValueOrDefault);
                 TryClear(valuePattern);
-                logger.LogWarning("Message delivery refused: the editor did not contain exactly the requested message after setting the draft.");
+                logger.LogWarning(
+                    "Message delivery refused: the editor draft differed after input. ExpectedLength={ExpectedLength} ActualLength={ActualLength}.",
+                    normalizedMessage.Length, actual.Length);
                 return false;
             }
 

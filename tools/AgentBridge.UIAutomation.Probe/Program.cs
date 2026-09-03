@@ -5,15 +5,18 @@ using AgentBridge.UIAutomation.Locators;
 using Microsoft.Extensions.Logging.Abstractions;
 
 var sendFileMode = args.Length == 4 && string.Equals(args[0], "--send-file", StringComparison.Ordinal);
-if (!sendFileMode && args.Length is < 1 or > 2)
+var sendTextMode = args.Length == 4 && string.Equals(args[0], "--send-text", StringComparison.Ordinal);
+var sendMode = sendFileMode || sendTextMode;
+if (!sendMode && args.Length is < 1 or > 2)
 {
     Console.Error.WriteLine("Usage: AgentBridge.UIAutomation.Probe <process-name> [name-filter]");
     Console.Error.WriteLine("   or: AgentBridge.UIAutomation.Probe --send-file <process-name> <exact-title> <message-file>");
+    Console.Error.WriteLine("   or: AgentBridge.UIAutomation.Probe --send-text <process-name> <exact-title> <message>");
     return 2;
 }
 
-var processName = sendFileMode ? args[1] : args[0];
-var titleFilter = sendFileMode ? args[2] : args.Length == 2 ? args[1] : null;
+var processName = sendMode ? args[1] : args[0];
+var titleFilter = sendMode ? args[2] : args.Length == 2 ? args[1] : null;
 var messageFile = sendFileMode ? Path.GetFullPath(args[3]) : null;
 if (sendFileMode && !File.Exists(messageFile))
 {
@@ -65,7 +68,7 @@ if (titleFilter is not null)
         : await inputLocator.FindInputBoxAsync(conversation, CancellationToken.None);
     Console.WriteLine($"READ-ONLY VERIFICATION Conversation={(conversation is null ? "NOT FOUND" : "VERIFIED")} Input={(input is null ? "NOT FOUND" : "VERIFIED")}");
 
-    if (sendFileMode)
+    if (sendMode)
     {
         if (conversation is null || input is null)
         {
@@ -73,8 +76,8 @@ if (titleFilter is not null)
             return 1;
         }
 
-        var sender = new VerifiedMessageSender(NullLogger<VerifiedMessageSender>.Instance);
-        var message = await File.ReadAllTextAsync(messageFile!);
+        var sender = new VerifiedMessageSender(new ProbeLogger<VerifiedMessageSender>());
+        var message = sendFileMode ? await File.ReadAllTextAsync(messageFile!) : args[3];
         var delivered = await sender.SendAsync(conversation, input, message, CancellationToken.None);
         Console.WriteLine($"SEND VERIFICATION: {(delivered ? "DELIVERED" : "NOT VERIFIED")}");
         return delivered ? 0 : 1;
@@ -87,4 +90,17 @@ static string Safe(Func<string?> read)
 {
     try { return read() ?? string.Empty; }
     catch { return "<unavailable>"; }
+}
+
+file sealed class ProbeLogger<T> : Microsoft.Extensions.Logging.ILogger<T>
+{
+    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+    public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+    public void Log<TState>(
+        Microsoft.Extensions.Logging.LogLevel logLevel,
+        Microsoft.Extensions.Logging.EventId eventId,
+        TState state,
+        Exception? exception,
+        Func<TState, Exception?, string> formatter) =>
+        Console.Error.WriteLine($"{logLevel}: {formatter(state, exception)}");
 }
