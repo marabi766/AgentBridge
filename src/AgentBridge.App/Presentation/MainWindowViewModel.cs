@@ -33,6 +33,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private bool _startMinimized;
     private bool _darkTheme;
     private bool _dryRun = true;
+    private BridgeStartPoint _selectedStartPoint = BridgeStartPoint.WaitForClaudeReport;
     private int _setupStep = 1;
     private string _setupValidation = "No project validation has run yet.";
 
@@ -51,9 +52,19 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         _uiContext = SynchronizationContext.Current ?? new SynchronizationContext();
         _orchestrator.StatusChanged += OnStatusChanged;
 
-        StartCommand = new AsyncCommand(() => RunOperationAsync("Starting…", _orchestrator.StartAsync), () => CanStart);
+        StartCommand = new AsyncCommand(
+            () => RunOperationAsync(
+                "Starting from selected checkpoint…",
+                token => _orchestrator.StartAtAsync(SelectedStartPoint, token)),
+            () => CanStart);
         PauseCommand = new AsyncCommand(() => RunOperationAsync("Pausing…", _orchestrator.PauseAsync), () => CanPause);
         ResumeCommand = new AsyncCommand(() => RunOperationAsync("Resuming…", _orchestrator.ResumeAsync), () => CanResume);
+        RetryClaudeCommand = new AsyncCommand(
+            () => RunOperationAsync("Retrying Claude delivery…", _orchestrator.RetryClaudeDeliveryAsync),
+            () => CanRetryClaude);
+        ContinueWaitingForClaudeCommand = new AsyncCommand(
+            () => RunOperationAsync("Continuing to wait for Claude…", _orchestrator.ContinueWaitingForClaudeAsync),
+            () => CanContinueWaitingForClaude);
         StopCommand = new AsyncCommand(StopSafelyAsync, () => CanStop);
         RefreshCommand = new AsyncCommand(RefreshAsync);
         LoadActivityCommand = new AsyncCommand(LoadActivityAsync);
@@ -70,6 +81,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public AsyncCommand StartCommand { get; }
     public AsyncCommand PauseCommand { get; }
     public AsyncCommand ResumeCommand { get; }
+    public AsyncCommand RetryClaudeCommand { get; }
+    public AsyncCommand ContinueWaitingForClaudeCommand { get; }
     public AsyncCommand StopCommand { get; }
     public AsyncCommand RefreshCommand { get; }
     public AsyncCommand LoadActivityCommand { get; }
@@ -82,6 +95,17 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public AsyncCommand ResetStateCommand { get; }
     public RelayCommand NavigateCommand { get; }
     public ObservableCollection<LogEntry> ActivityEntries { get; } = [];
+    public IReadOnlyList<BridgeStartPointOption> StartPointOptions { get; } =
+    [
+        new(
+            BridgeStartPoint.WaitForClaudeReport,
+            "Claude is working",
+            "Wait for ClaudeResultReport.md, then hand the new report to Codex."),
+        new(
+            BridgeStartPoint.WaitForCodexPrompt,
+            "Codex is working",
+            "Wait for CodexPrompt.md, then hand the new prompt to Claude."),
+    ];
     public Func<bool>? ConfirmStop { get; set; }
     public Func<bool>? ConfirmReset { get; set; }
     public Func<bool>? ConfirmLiveEnable { get; set; }
@@ -104,7 +128,24 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public bool CanStart => Status?.CurrentState is null or BridgeState.Idle or BridgeState.Stopped;
     public bool CanPause => Status?.IsRunning == true;
     public bool CanResume => Status?.IsPaused == true;
+    public bool CanRetryClaude => Status?.CurrentState == BridgeState.WaitingForClaudeReport
+        && Status.CurrentIteration > 0;
+    public bool CanContinueWaitingForClaude => Status?.CurrentState == BridgeState.Error
+        && Status.LastError?.StartsWith("Failed to deliver instruction to Claude", StringComparison.Ordinal) == true;
     public bool CanStop => Status?.CurrentState is not (null or BridgeState.Idle or BridgeState.Stopped);
+    public BridgeStartPoint SelectedStartPoint
+    {
+        get => _selectedStartPoint;
+        set
+        {
+            if (SetProperty(ref _selectedStartPoint, value))
+            {
+                OnPropertyChanged(nameof(SelectedStartPointDescription));
+            }
+        }
+    }
+    public string SelectedStartPointDescription => StartPointOptions
+        .First(option => option.Value == SelectedStartPoint).Description;
     public string StateText => Status?.StatusText ?? "Loading";
     public string IterationText => Status is null ? "—" : $"{Status.CurrentIteration} / {Status.MaximumIterations}";
     public string ModeText => Status?.DryRun == false ? "LIVE" : "DRY RUN";
@@ -120,6 +161,19 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public string GitTreeText => Status?.GitWorkingTreeSummary ?? "— not available";
     public string ClaudeFileUpdateText => FormatTimestamp(Status?.LastClaudeReportUpdateUtc);
     public string CodexFileUpdateText => FormatTimestamp(Status?.LastCodexPromptUpdateUtc);
+    public int CycleProgress => Status?.CurrentState switch
+    {
+        BridgeState.WaitingForClaudeReport => 1,
+        BridgeState.ClaudeReportDetected => 2,
+        BridgeState.WaitingForCodex => 3,
+        BridgeState.CodexProcessing => 4,
+        BridgeState.WaitingForCodexPrompt => 5,
+        BridgeState.CodexPromptDetected => 6,
+        BridgeState.WaitingForClaude => 7,
+        BridgeState.ClaudeProcessing => 8,
+        _ => 0,
+    };
+    public string CycleProgressText => $"Step {CycleProgress} of 8 · {StateText}";
 
     public string ProjectPath { get => _projectPath; set => SetProperty(ref _projectPath, value); }
     public string ClaudeReportFileName { get => _claudeReportFileName; set => SetProperty(ref _claudeReportFileName, value); }
@@ -412,11 +466,13 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     private void RaiseStatusProperties()
     {
-        foreach (var name in new[] { nameof(HasError), nameof(CanStart), nameof(CanPause), nameof(CanResume), nameof(CanStop), nameof(StateText), nameof(IterationText), nameof(ModeText), nameof(ModeExplanation), nameof(GeneratedText), nameof(LastActionText), nameof(LastErrorText), nameof(ClaudeStatusText), nameof(CodexStatusText), nameof(GitBranchText), nameof(GitTreeText), nameof(ClaudeFileUpdateText), nameof(CodexFileUpdateText) })
+        foreach (var name in new[] { nameof(HasError), nameof(CanStart), nameof(CanPause), nameof(CanResume), nameof(CanRetryClaude), nameof(CanContinueWaitingForClaude), nameof(CanStop), nameof(StateText), nameof(IterationText), nameof(ModeText), nameof(ModeExplanation), nameof(GeneratedText), nameof(LastActionText), nameof(LastErrorText), nameof(ClaudeStatusText), nameof(CodexStatusText), nameof(GitBranchText), nameof(GitTreeText), nameof(ClaudeFileUpdateText), nameof(CodexFileUpdateText), nameof(CycleProgress), nameof(CycleProgressText) })
             OnPropertyChanged(name);
         StartCommand.RaiseCanExecuteChanged();
         PauseCommand.RaiseCanExecuteChanged();
         ResumeCommand.RaiseCanExecuteChanged();
+        RetryClaudeCommand.RaiseCanExecuteChanged();
+        ContinueWaitingForClaudeCommand.RaiseCanExecuteChanged();
         StopCommand.RaiseCanExecuteChanged();
         ResetStateCommand.RaiseCanExecuteChanged();
     }
@@ -437,3 +493,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     public void Dispose() => _orchestrator.StatusChanged -= OnStatusChanged;
 }
+
+public sealed record BridgeStartPointOption(
+    BridgeStartPoint Value,
+    string Label,
+    string Description);

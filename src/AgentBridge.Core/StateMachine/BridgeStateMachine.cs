@@ -16,7 +16,7 @@ public sealed class BridgeStateMachine
             [BridgeState.Idle] = [BridgeState.WaitingForClaudeReport, BridgeState.Stopped],
 
             [BridgeState.WaitingForClaudeReport] =
-                [BridgeState.ClaudeReportDetected, BridgeState.Paused, BridgeState.Stopped, BridgeState.Error],
+                [BridgeState.ClaudeReportDetected, BridgeState.WaitingForClaude, BridgeState.Paused, BridgeState.Stopped, BridgeState.Error],
 
             [BridgeState.ClaudeReportDetected] =
                 [BridgeState.WaitingForCodex, BridgeState.Paused, BridgeState.Stopped, BridgeState.Error],
@@ -50,7 +50,7 @@ public sealed class BridgeStateMachine
 
             [BridgeState.Stopped] = [BridgeState.WaitingForClaudeReport],
 
-            [BridgeState.Error] = [BridgeState.Idle, BridgeState.Stopped],
+            [BridgeState.Error] = [BridgeState.Idle, BridgeState.WaitingForClaudeReport, BridgeState.Stopped],
         };
 
     private readonly Lock _gate = new();

@@ -25,6 +25,15 @@ public sealed class ElementSemanticsTests
         Assert.False(ElementSemantics.IsCurrentConversationMarker("Group", "Agent Bridge", "group/cwd", "Agent Bridge"));
 
     [Theory]
+    [InlineData("Button", "RASTA, rename session", "RASTA", true)]
+    [InlineData("Button", "RASTA", "RASTA", false)]
+    [InlineData("Button", "Other, rename session", "RASTA", false)]
+    [InlineData("Group", "RASTA, rename session", "RASTA", false)]
+    public void PreferredCurrentConversationMarker_RequiresExactRenameSessionHeader(
+        string type, string name, string identifier, bool expected) =>
+        Assert.Equal(expected, ElementSemantics.IsPreferredCurrentConversationMarker(type, name, identifier));
+
+    [Theory]
     [InlineData("Edit", "Prompt", "tiptap ProseMirror")]
     [InlineData("Edit", "Do anything", "ProseMirror")]
     [InlineData("Edit", "Localized label", "editor ProseMirror")]

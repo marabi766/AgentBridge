@@ -95,10 +95,33 @@
                 <Grid>
                     <!-- Dashboard -->
                     <StackPanel Visibility="{Binding IsDashboard, Converter={StaticResource BooleanToVisibility}}">
+                        <Border Style="{StaticResource PanelStyle}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="220" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Margin="0,0,16,0">
+                                    <TextBlock Text="Resume checkpoint" Style="{StaticResource Caption}" />
+                                    <ComboBox ItemsSource="{Binding StartPointOptions}"
+                                              DisplayMemberPath="Label"
+                                              SelectedValuePath="Value"
+                                              SelectedValue="{Binding SelectedStartPoint}"
+                                              IsEnabled="{Binding CanStart}"
+                                              MinHeight="32"
+                                              automation:AutomationProperties.Name="Resume checkpoint" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                    <TextBlock Text="Choose who is currently working before you press Start." FontWeight="SemiBold" />
+                                    <TextBlock Text="{Binding SelectedStartPointDescription}" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,4,0,0" />
+                                </StackPanel>
+                            </Grid>
+                        </Border>
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
                             <Button Content="▶ Start" Command="{Binding StartCommand}" automation:AutomationProperties.HelpText="Starts or safely resumes the bridge." />
                             <Button Content="Ⅱ Pause" Command="{Binding PauseCommand}" automation:AutomationProperties.HelpText="Pauses processing while keeping the current iteration." />
                             <Button Content="▶ Resume" Command="{Binding ResumeCommand}" />
+                            <Button Content="↻ Retry Claude" Command="{Binding RetryClaudeCommand}" automation:AutomationProperties.HelpText="Resends the current Codex instruction to Claude without resetting iteration progress." />
                             <Button Content="■ Stop" Command="{Binding StopCommand}" Foreground="{DynamicResource ErrorBrush}" />
                             <Button Content="↻ Refresh" Command="{Binding RefreshCommand}" />
                         </StackPanel>
@@ -109,6 +132,7 @@
                                 <TextBlock Text="{Binding LastErrorText}" TextWrapping="Wrap" Margin="0,6,0,0" />
                                 <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
                                     <Button Content="Open Diagnostics" Command="{Binding NavigateCommand}" CommandParameter="Diagnostics" />
+                                    <Button Content="Continue waiting for Claude" Command="{Binding ContinueWaitingForClaudeCommand}" />
                                     <Button Content="Reset state…" Command="{Binding ResetStateCommand}" Foreground="{DynamicResource ErrorBrush}" />
                                 </StackPanel>
                             </StackPanel>
@@ -127,7 +151,8 @@
                                     <TextBlock Text="Claude handoff" TextAlignment="Center" TextWrapping="Wrap" />
                                     <TextBlock Text="Claude processing" TextAlignment="Center" TextWrapping="Wrap" />
                                 </UniformGrid>
-                                <ProgressBar Minimum="0" Maximum="12" Value="{Binding Status.CurrentState, Mode=OneWay}" Height="4" Margin="0,10,0,0" IsHitTestVisible="False" />
+                                <ProgressBar Minimum="0" Maximum="8" Value="{Binding CycleProgress, Mode=OneWay}" Height="8" Margin="0,12,0,0" Foreground="{DynamicResource AccentBrush}" IsHitTestVisible="False" automation:AutomationProperties.Name="Cycle progress" />
+                                <TextBlock Text="{Binding CycleProgressText}" HorizontalAlignment="Right" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="11" Margin="0,5,0,0" />
                             </StackPanel>
                         </Border>
 
@@ -188,7 +213,7 @@
                         <TextBlock Text="Prompt and report bodies are redacted from application logs." Foreground="{DynamicResource WarningBrush}" Margin="0,0,0,12" />
                         <DataGrid ItemsSource="{Binding ActivityEntries}" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column" GridLinesVisibility="Horizontal" MinHeight="420">
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="Time" Binding="{Binding TimestampUtc, StringFormat={}{0:HH:mm:ss}}" Width="90" />
+                                <DataGridTextColumn Header="Local time" Binding="{Binding TimestampLocal, StringFormat={}{0:HH:mm:ss}}" Width="100" />
                                 <DataGridTextColumn Header="Severity" Binding="{Binding Level}" Width="90" />
                                 <DataGridTextColumn Header="Category" Binding="{Binding Category}" Width="180" />
                                 <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="*" />

@@ -1,6 +1,4 @@
 using FlaUI.Core.AutomationElements;
-using FlaUI.Core.Input;
-using FlaUI.Core.WindowsAPI;
 using Microsoft.Extensions.Logging;
 
 namespace AgentBridge.UIAutomation.Locators;
@@ -8,7 +6,7 @@ namespace AgentBridge.UIAutomation.Locators;
 public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger) : IMessageSender
 {
     private static readonly TimeSpan ControlAppearanceTimeout = TimeSpan.FromSeconds(3);
-    private static readonly TimeSpan ReceiptTimeout = TimeSpan.FromSeconds(12);
+    private static readonly TimeSpan ReceiptTimeout = TimeSpan.FromSeconds(20);
 
     public Task<bool> SendAsync(
         AutomationElement conversation,
@@ -93,13 +91,11 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
                     return false;
                 }
 
-                if (draftDiffers)
-                {
-                    Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_A);
-                    await Task.Delay(100, cancellationToken).ConfigureAwait(false);
-                }
-
-                Keyboard.Type(normalizedMessage);
+                // Electron/Chromium rich-text editors can silently truncate long
+                // simulated keystroke sequences. The writable Value pattern is
+                // already required and is also what we use to verify/rollback the
+                // draft, so set the complete value atomically instead.
+                valuePattern.SetValue(normalizedMessage);
                 await Task.Delay(250, cancellationToken).ConfigureAwait(false);
             }
             else
@@ -144,7 +140,13 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var inputCleared = string.IsNullOrWhiteSpace(valuePattern.Value.ValueOrDefault);
-                var receiptObserved = CountExactRenderedMessages(conversation, normalizedMessage) > receiptCountBefore;
+                var receiptCountAfter = CountExactRenderedMessages(conversation, normalizedMessage);
+                // Chromium virtualizes older messages, so resending identical text
+                // may replace the prior rendered element instead of increasing the
+                // visible count. A cleared input after the one Send invocation plus
+                // an exact rendered copy is still a verifiable retry receipt.
+                var receiptObserved = receiptCountAfter > receiptCountBefore
+                    || (receiptCountBefore > 0 && receiptCountAfter > 0);
                 if (inputCleared && receiptObserved)
                 {
                     logger.LogInformation("Message delivery verified from cleared input and a new exact rendered receipt.");

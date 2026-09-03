@@ -83,7 +83,13 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
     // Commands
     // ------------------------------------------------------------------
 
-    public async Task StartAsync(CancellationToken cancellationToken)
+    public Task StartAsync(CancellationToken cancellationToken) =>
+        StartCoreAsync(null, cancellationToken);
+
+    public Task StartAtAsync(BridgeStartPoint startPoint, CancellationToken cancellationToken) =>
+        StartCoreAsync(startPoint, cancellationToken);
+
+    private async Task StartCoreAsync(BridgeStartPoint? requestedStartPoint, CancellationToken cancellationToken)
     {
         await _actionLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -144,11 +150,26 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
                     break;
             }
 
-            if (_stateMachine.Current == BridgeState.Error)
+            if (_stateMachine.Current == BridgeState.Error && requestedStartPoint is null)
             {
                 _logger.LogWarning("Start aborted: bridge recovered into Error state ({Error}). Call ResetState first.", _lastError);
                 PublishStatus();
                 return;
+            }
+
+            if (requestedStartPoint is not null)
+            {
+                var selectedState = requestedStartPoint == BridgeStartPoint.WaitForCodexPrompt
+                    ? BridgeState.WaitingForCodexPrompt
+                    : BridgeState.WaitingForClaudeReport;
+                _currentIteration = selectedState == BridgeState.WaitingForCodexPrompt
+                    ? Math.Max(1, _currentIteration)
+                    : _currentIteration;
+                _lastError = null;
+                _lastAction = selectedState == BridgeState.WaitingForCodexPrompt
+                    ? "Started at operator-selected Codex checkpoint"
+                    : "Started at operator-selected Claude checkpoint";
+                _stateMachine.ForceState(selectedState, null);
             }
 
             // A successful Start means whatever error stopped a prior run is no longer
@@ -183,6 +204,60 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
         // handler re-enters _actionLock.
         if (_claudeWatcher is not null) await _claudeWatcher.CheckNowAsync(cancellationToken).ConfigureAwait(false);
         if (_codexWatcher is not null) await _codexWatcher.CheckNowAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task RetryClaudeDeliveryAsync(CancellationToken cancellationToken)
+    {
+        await _actionLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_stateMachine.Current != BridgeState.WaitingForClaudeReport)
+            {
+                throw new InvalidOperationException("Claude delivery can only be retried while waiting for its report.");
+            }
+
+            if (_currentIteration < 1 || string.IsNullOrWhiteSpace(_lastCodexPromptHash))
+            {
+                throw new InvalidOperationException("There is no verified Codex prompt available to resend.");
+            }
+
+            Transition(BridgeState.WaitingForClaude, $"Retrying Claude delivery for iteration {_currentIteration}");
+            await PersistStateAsync(cancellationToken).ConfigureAwait(false);
+            await InvokeClaudeAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _actionLock.Release();
+        }
+    }
+
+    public async Task ContinueWaitingForClaudeAsync(CancellationToken cancellationToken)
+    {
+        await _actionLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_stateMachine.Current != BridgeState.Error
+                || _lastError?.StartsWith("Failed to deliver instruction to Claude", StringComparison.Ordinal) != true)
+            {
+                throw new InvalidOperationException("Only a timed-out Claude delivery can be acknowledged.");
+            }
+
+            _lastError = null;
+            _lastAction = $"Operator verified Claude delivery; waiting for iteration {_currentIteration} report";
+            EnsureWatchers();
+            _runCts ??= new CancellationTokenSource();
+            Transition(BridgeState.WaitingForClaudeReport, _lastAction);
+            await PersistStateAsync(cancellationToken).ConfigureAwait(false);
+            _claudeWatcher!.Start();
+            _codexWatcher!.Start();
+        }
+        finally
+        {
+            _actionLock.Release();
+        }
+
+        await _claudeWatcher!.CheckNowAsync(cancellationToken).ConfigureAwait(false);
+        await _codexWatcher!.CheckNowAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async Task PauseAsync(CancellationToken cancellationToken)

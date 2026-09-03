@@ -73,6 +73,24 @@ public class AgentOrchestratorTests
     }
 
     [Fact]
+    public async Task StartAt_CodexCheckpoint_WaitsForNextCodexPromptWithoutSendingOrResettingFiles()
+    {
+        var harness = new OrchestratorTestHarness();
+
+        await harness.Orchestrator.StartAtAsync(
+            BridgeStartPoint.WaitForCodexPrompt,
+            CancellationToken.None);
+
+        var status = await harness.Orchestrator.GetStatusAsync(CancellationToken.None);
+        Assert.Equal(BridgeState.WaitingForCodexPrompt, status.CurrentState);
+        Assert.Equal(1, status.CurrentIteration);
+        Assert.True(harness.ClaudeWatcher.IsRunning);
+        Assert.True(harness.CodexWatcher.IsRunning);
+        Assert.Empty(harness.ClaudeAdapter.State.SentMessages);
+        Assert.Empty(harness.CodexAdapter.State.SentMessages);
+    }
+
+    [Fact]
     public async Task ClaudeReportChange_InvokesCodexAndAdvancesState()
     {
         var harness = new OrchestratorTestHarness();

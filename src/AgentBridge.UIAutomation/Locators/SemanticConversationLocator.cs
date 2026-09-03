@@ -27,6 +27,21 @@ public sealed class SemanticConversationLocator(ILogger<SemanticConversationLoca
                     Safe(() => element.ClassName), conversationIdentifier))
                 .ToArray();
 
+            // Claude exposes the selected session title more than once: a sidebar
+            // entry, a plain header button, and one explicit "rename session"
+            // header control. The rename control is the strongest current-session
+            // identity marker, so prefer its unique match over weaker duplicates.
+            var preferredMarkers = markers
+                .Where(element => ElementSemantics.IsPreferredCurrentConversationMarker(
+                    Safe(() => element.ControlType.ToString()), Safe(() => element.Name),
+                    conversationIdentifier))
+                .ToArray();
+
+            if (preferredMarkers.Length == 1)
+            {
+                return Task.FromResult<AutomationElement?>(mainWindow);
+            }
+
             if (markers.Length != 1)
             {
                 logger.LogWarning(

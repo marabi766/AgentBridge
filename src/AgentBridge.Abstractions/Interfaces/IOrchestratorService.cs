@@ -11,9 +11,18 @@ public interface IOrchestratorService
 {
     Task StartAsync(CancellationToken cancellationToken);
 
+    /// <summary>Starts from an explicitly selected passive protocol checkpoint.</summary>
+    Task StartAtAsync(BridgeStartPoint startPoint, CancellationToken cancellationToken);
+
     Task PauseAsync(CancellationToken cancellationToken);
 
     Task ResumeAsync(CancellationToken cancellationToken);
+
+    /// <summary>Resends the current Codex instruction to Claude without advancing or resetting the cycle.</summary>
+    Task RetryClaudeDeliveryAsync(CancellationToken cancellationToken);
+
+    /// <summary>Returns a timed-out Claude delivery to report-waiting after the operator verifies it appeared.</summary>
+    Task ContinueWaitingForClaudeAsync(CancellationToken cancellationToken);
 
     Task StopAsync(CancellationToken cancellationToken);
 

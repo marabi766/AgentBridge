@@ -37,6 +37,13 @@ public static partial class ElementSemantics
             && !css.Contains("folder-row", StringComparison.OrdinalIgnoreCase);
     }
 
+    public static bool IsPreferredCurrentConversationMarker(string? controlType, string? name, string identifier) =>
+        string.Equals(controlType, "Button", StringComparison.OrdinalIgnoreCase)
+        && string.Equals(
+            Normalize(name),
+            $"{Normalize(identifier)}, rename session",
+            StringComparison.OrdinalIgnoreCase);
+
     public static bool IsInputCandidate(string? controlType, string? name, string? className)
     {
         if (!string.Equals(controlType, "Edit", StringComparison.OrdinalIgnoreCase))

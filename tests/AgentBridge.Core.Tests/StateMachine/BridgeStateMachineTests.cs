@@ -30,7 +30,6 @@ public class BridgeStateMachineTests
     [InlineData(BridgeState.WaitingForClaudeReport, BridgeState.CodexProcessing)]
     [InlineData(BridgeState.ClaudeReportDetected, BridgeState.WaitingForClaude)]
     [InlineData(BridgeState.Stopped, BridgeState.Paused)]
-    [InlineData(BridgeState.Error, BridgeState.WaitingForClaudeReport)]
     public void IllegalEdges_AreRejected(BridgeState from, BridgeState to)
     {
         var sm = new BridgeStateMachine(from);
@@ -90,6 +89,17 @@ public class BridgeStateMachineTests
         Assert.True(BridgeStateMachine.IsValidTransition(BridgeState.Error, BridgeState.Idle));
         Assert.False(BridgeStateMachine.IsValidTransition(BridgeState.Error, BridgeState.CodexProcessing));
         Assert.True(sm.TryTransition(BridgeState.Idle, "reset", DateTimeOffset.UtcNow));
+    }
+
+    [Fact]
+    public void ErrorFromTimedOutClaudeDelivery_CanReturnToReportWaiting()
+    {
+        var sm = new BridgeStateMachine(BridgeState.Error);
+
+        Assert.True(sm.TryTransition(
+            BridgeState.WaitingForClaudeReport,
+            "operator verified delivery",
+            DateTimeOffset.UtcNow));
     }
 
     [Fact]
