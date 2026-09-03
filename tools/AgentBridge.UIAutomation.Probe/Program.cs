@@ -6,12 +6,14 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 var sendFileMode = args.Length == 4 && string.Equals(args[0], "--send-file", StringComparison.Ordinal);
 var sendTextMode = args.Length == 4 && string.Equals(args[0], "--send-text", StringComparison.Ordinal);
-var sendMode = sendFileMode || sendTextMode;
+var replaceTextMode = args.Length == 4 && string.Equals(args[0], "--send-text-replace", StringComparison.Ordinal);
+var sendMode = sendFileMode || sendTextMode || replaceTextMode;
 if (!sendMode && args.Length is < 1 or > 2)
 {
     Console.Error.WriteLine("Usage: AgentBridge.UIAutomation.Probe <process-name> [name-filter]");
     Console.Error.WriteLine("   or: AgentBridge.UIAutomation.Probe --send-file <process-name> <exact-title> <message-file>");
     Console.Error.WriteLine("   or: AgentBridge.UIAutomation.Probe --send-text <process-name> <exact-title> <message>");
+    Console.Error.WriteLine("   or: AgentBridge.UIAutomation.Probe --send-text-replace <process-name> <exact-title> <message>");
     return 2;
 }
 
@@ -78,7 +80,9 @@ if (titleFilter is not null)
 
         var sender = new VerifiedMessageSender(new ProbeLogger<VerifiedMessageSender>());
         var message = sendFileMode ? await File.ReadAllTextAsync(messageFile!) : args[3];
-        var delivered = await sender.SendAsync(conversation, input, message, CancellationToken.None);
+        var delivered = replaceTextMode
+            ? await sender.SendReplacingDraftAsync(conversation, input, message, CancellationToken.None)
+            : await sender.SendAsync(conversation, input, message, CancellationToken.None);
         Console.WriteLine($"SEND VERIFICATION: {(delivered ? "DELIVERED" : "NOT VERIFIED")}");
         return delivered ? 0 : 1;
     }

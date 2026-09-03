@@ -132,4 +132,5 @@ overwrites `ClaudeResultReport.md`, and Codex reads that report on the next
 cycle. Desktop delivery is therefore a short wake-up instruction. If a prior
 attempt leaves a draft, the sender resumes it only when its normalized content
 exactly matches the requested wake-up message; a different draft is preserved
-and delivery fails closed.
+and delivery fails closed. Known accessible placeholders such as
+`Type / for commands` are treated as an empty editor rather than a user draft.

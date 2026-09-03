@@ -62,6 +62,12 @@ public static partial class ElementSemantics
             || string.Equals(rendered, $"You said: {expected}", StringComparison.Ordinal);
     }
 
+    public static bool IsEditorPlaceholder(string? value)
+    {
+        var normalized = Normalize(value);
+        return normalized is "Type / for commands" or "Do anything" or "Prompt" or "Ask anything";
+    }
+
     [GeneratedRegex(@"\s+")]
     private static partial Regex Whitespace();
 }

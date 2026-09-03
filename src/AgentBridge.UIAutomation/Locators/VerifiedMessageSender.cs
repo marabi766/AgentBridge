@@ -1,5 +1,6 @@
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Input;
+using FlaUI.Core.WindowsAPI;
 using Microsoft.Extensions.Logging;
 
 namespace AgentBridge.UIAutomation.Locators;
@@ -9,10 +10,25 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
     private static readonly TimeSpan ControlAppearanceTimeout = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan ReceiptTimeout = TimeSpan.FromSeconds(12);
 
-    public async Task<bool> SendAsync(
+    public Task<bool> SendAsync(
         AutomationElement conversation,
         AutomationElement inputBox,
         string message,
+        CancellationToken cancellationToken) =>
+        SendCoreAsync(conversation, inputBox, message, replaceExistingDraft: false, cancellationToken);
+
+    public Task<bool> SendReplacingDraftAsync(
+        AutomationElement conversation,
+        AutomationElement inputBox,
+        string message,
+        CancellationToken cancellationToken) =>
+        SendCoreAsync(conversation, inputBox, message, replaceExistingDraft: true, cancellationToken);
+
+    private async Task<bool> SendCoreAsync(
+        AutomationElement conversation,
+        AutomationElement inputBox,
+        string message,
+        bool replaceExistingDraft,
         CancellationToken cancellationToken)
     {
         FlaUI.Core.Patterns.IValuePattern? writablePattern = null;
@@ -34,14 +50,27 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
             writablePattern = valuePattern;
 
             var normalizedMessage = ElementSemantics.Normalize(message);
-            var existingDraft = ElementSemantics.Normalize(valuePattern.Value.ValueOrDefault);
+            var rawExistingValue = valuePattern.Value.ValueOrDefault;
+            var existingDraft = ElementSemantics.IsEditorPlaceholder(rawExistingValue)
+                ? string.Empty
+                : ElementSemantics.Normalize(rawExistingValue);
             var resumeExactDraft = existingDraft.Length > 0;
-            if (resumeExactDraft && !string.Equals(existingDraft, normalizedMessage, StringComparison.Ordinal))
+            var draftDiffers = resumeExactDraft
+                && !string.Equals(existingDraft, normalizedMessage, StringComparison.Ordinal);
+            if (draftDiffers && !replaceExistingDraft)
             {
                 logger.LogWarning(
                     "Message delivery refused: the target input contains a different user draft. ExpectedLength={ExpectedLength} ActualLength={ActualLength}.",
                     normalizedMessage.Length, existingDraft.Length);
                 return false;
+            }
+
+            if (draftDiffers)
+            {
+                logger.LogWarning(
+                    "Replacing the existing editor draft after explicit authorization. ExpectedLength={ExpectedLength} ActualLength={ActualLength}.",
+                    normalizedMessage.Length, existingDraft.Length);
+                resumeExactDraft = false;
             }
 
             var receiptCountBefore = CountExactRenderedMessages(conversation, normalizedMessage);
@@ -56,7 +85,7 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
             await Task.Delay(150, cancellationToken).ConfigureAwait(false);
             if (!resumeExactDraft)
             {
-                inputBox.Focus();
+                inputBox.Click();
                 await Task.Delay(100, cancellationToken).ConfigureAwait(false);
                 if (!inputBox.Properties.HasKeyboardFocus.ValueOrDefault)
                 {
@@ -64,7 +93,14 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
                     return false;
                 }
 
+                if (draftDiffers)
+                {
+                    Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_A);
+                    await Task.Delay(100, cancellationToken).ConfigureAwait(false);
+                }
+
                 Keyboard.Type(normalizedMessage);
+                await Task.Delay(250, cancellationToken).ConfigureAwait(false);
             }
             else
             {

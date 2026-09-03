@@ -54,4 +54,12 @@ public sealed class ElementSemanticsTests
         string message,
         bool expected) =>
         Assert.Equal(expected, ElementSemantics.IsExactRenderedReceipt(rendered, message));
+
+    [Theory]
+    [InlineData("Type / for commands", true)]
+    [InlineData("Do anything", true)]
+    [InlineData("Prompt", true)]
+    [InlineData("User-authored draft", false)]
+    public void EditorPlaceholder_DistinguishesAccessiblePlaceholderFromDraft(string value, bool expected) =>
+        Assert.Equal(expected, ElementSemantics.IsEditorPlaceholder(value));
 }
