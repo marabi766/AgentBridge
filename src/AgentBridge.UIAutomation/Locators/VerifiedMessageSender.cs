@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using FlaUI.Core.AutomationElements;
 using Microsoft.Extensions.Logging;
 
@@ -8,6 +9,7 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
     private static readonly TimeSpan ControlAppearanceTimeout = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan ReceiptTimeout = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan FocusTimeout = TimeSpan.FromSeconds(3);
+    private const int AccessDenied = 5;
 
     public Task<bool> SendAsync(
         AutomationElement conversation,
@@ -35,24 +37,43 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
     /// The guarantee is unchanged: delivery still proceeds only once focus has
     /// been positively observed on the intended input. Only the patience is new.
     /// </summary>
-    private static async Task<bool> TryFocusInputAsync(
+    private static async Task<FocusAttempt> TryFocusInputAsync(
         Window window,
         AutomationElement inputBox,
         CancellationToken cancellationToken)
     {
         var deadline = DateTime.UtcNow + FocusTimeout;
+        var inputWasDenied = false;
         while (true)
         {
-            inputBox.Click();
+            try
+            {
+                inputBox.Click();
+            }
+            catch (Win32Exception ex) when (ex.NativeErrorCode == AccessDenied)
+            {
+                // Windows refuses synthetic input aimed at a locked desktop or at
+                // a window owned by a higher-privilege process. That condition can
+                // clear on its own, so keep trying, but remember why this failed so
+                // the refusal can name the real cause instead of reporting it as a
+                // focus problem.
+                inputWasDenied = true;
+            }
+            catch (Exception)
+            {
+                // Any other click failure is retried the same way: the focus check
+                // below is what decides, never the click itself.
+            }
+
             await Task.Delay(100, cancellationToken).ConfigureAwait(false);
             if (inputBox.Properties.HasKeyboardFocus.ValueOrDefault)
             {
-                return true;
+                return new FocusAttempt(true, inputWasDenied);
             }
 
             if (DateTime.UtcNow >= deadline)
             {
-                return false;
+                return new FocusAttempt(false, inputWasDenied);
             }
 
             try
@@ -68,6 +89,8 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
             await Task.Delay(200, cancellationToken).ConfigureAwait(false);
         }
     }
+
+    private readonly record struct FocusAttempt(bool Focused, bool InputWasDenied);
 
     private async Task<bool> SendCoreAsync(
         AutomationElement conversation,
@@ -130,9 +153,14 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
             await Task.Delay(150, cancellationToken).ConfigureAwait(false);
             if (!resumeExactDraft)
             {
-                if (!await TryFocusInputAsync(window, inputBox, cancellationToken).ConfigureAwait(false))
+                var focus = await TryFocusInputAsync(window, inputBox, cancellationToken).ConfigureAwait(false);
+                if (!focus.Focused)
                 {
-                    logger.LogWarning("Message delivery refused: keyboard focus could not be verified on the target input.");
+                    logger.LogWarning(
+                        focus.InputWasDenied
+                            ? "Message delivery refused: Windows denied synthetic input to this desktop. The screen is "
+                              + "locked, or a window from a higher-privilege process holds the foreground. Nothing was typed."
+                            : "Message delivery refused: keyboard focus could not be verified on the target input.");
                     return false;
                 }
 
