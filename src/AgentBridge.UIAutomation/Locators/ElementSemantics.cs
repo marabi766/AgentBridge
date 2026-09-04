@@ -60,15 +60,50 @@ public static partial class ElementSemantics
             $"{Normalize(identifier)}, rename session",
             StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Identifies the one sidebar row that opens the configured conversation.
+    ///
+    /// The two apps label their rows differently. ChatGPT rows carry the thread
+    /// title verbatim, so they are matched exactly. Claude decorates its rows with
+    /// a leading status badge — "Running AgentBridge", "#25 · Open RASTA Bridge" —
+    /// so the title is matched as a whole-word suffix instead. Neither form may
+    /// expand and collapse, which keeps folder and section headers out.
+    ///
+    /// Matching stays deliberately narrow because the caller refuses to navigate
+    /// unless exactly one row matches; a looser rule would turn a near-miss into a
+    /// confident jump to the wrong conversation.
+    /// </summary>
     public static bool IsConversationNavigationCandidate(
         string? controlType,
         string? name,
         string? className,
-        string identifier) =>
-        string.Equals(controlType, "Button", StringComparison.OrdinalIgnoreCase)
-        && string.Equals(Normalize(name), Normalize(identifier), StringComparison.OrdinalIgnoreCase)
-        && (className?.Contains("sidebar-item", StringComparison.OrdinalIgnoreCase) ?? false)
-        && !(className?.Contains("folder-row", StringComparison.OrdinalIgnoreCase) ?? false);
+        bool supportsExpandCollapse,
+        string identifier)
+    {
+        if (!string.Equals(controlType, "Button", StringComparison.OrdinalIgnoreCase) || supportsExpandCollapse)
+        {
+            return false;
+        }
+
+        var normalizedIdentifier = Normalize(identifier);
+        if (normalizedIdentifier.Length == 0)
+        {
+            return false;
+        }
+
+        var css = className ?? string.Empty;
+        var normalizedName = Normalize(name);
+
+        if (css.Contains("sidebar-item", StringComparison.OrdinalIgnoreCase))
+        {
+            return !css.Contains("folder-row", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(normalizedName, normalizedIdentifier, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return css.Contains("df-row", StringComparison.OrdinalIgnoreCase)
+            && (string.Equals(normalizedName, normalizedIdentifier, StringComparison.OrdinalIgnoreCase)
+                || normalizedName.EndsWith($" {normalizedIdentifier}", StringComparison.OrdinalIgnoreCase));
+    }
 
     public static bool IsInputCandidate(string? controlType, string? name, string? className)
     {

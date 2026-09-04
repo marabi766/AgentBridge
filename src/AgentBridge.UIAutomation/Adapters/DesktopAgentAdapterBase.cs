@@ -455,6 +455,7 @@ public abstract class DesktopAgentAdapterBase : IAgentAdapter, IDisposable
                 Safe(() => element.ControlType.ToString()),
                 Safe(() => element.Name),
                 Safe(() => element.ClassName),
+                Safe(() => element.Patterns.ExpandCollapse.IsSupported, false),
                 conversationIdentifier)) == 1;
 
     private static bool HasActiveProcessingControl(IEnumerable<AutomationElement> elements) =>
