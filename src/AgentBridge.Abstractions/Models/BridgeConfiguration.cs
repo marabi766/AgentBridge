@@ -52,7 +52,10 @@ public sealed record BridgeConfiguration
     public int FileReadRetryDelayMilliseconds { get; init; } = 200;
 
     // --- Timeouts / retry ---
-    public int AgentTimeoutSeconds { get; init; } = 30;
+    // One delivery waits for focus, for the editor to report the draft back and
+    // for a send receipt. On a disconnected desktop those readbacks lag badly, so
+    // the default has to leave room for them rather than cancel mid-delivery.
+    public int AgentTimeoutSeconds { get; init; } = 180;
 
     public int RetryCount { get; init; } = 3;
 

@@ -30,6 +30,10 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<AgentOrchestrator> _logger;
 
+    // Focus, editor readback and send receipt each have their own deadline; one
+    // delivery has to be allowed to outlast their sum, or it can never finish.
+    private static readonly TimeSpan TypicalDeliveryTimeout = TimeSpan.FromSeconds(180);
+
     private readonly SemaphoreSlim _actionLock = new(1, 1);
     private readonly BridgeStateMachine _stateMachine = new();
 
@@ -916,7 +920,22 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             return true;
         }
 
-        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Max(1, _configuration.AgentTimeoutSeconds)));
+        // This bounds one whole delivery, which internally waits for focus, for
+        // the editor to report the draft back, and for a send receipt. Set below
+        // those waits it does not make delivery fail fast, it makes it impossible
+        // — every attempt is cancelled mid-flight. Say so rather than overriding
+        // the operator, who may well want a short deadline on a fast machine.
+        var timeout = TimeSpan.FromSeconds(Math.Max(1, _configuration.AgentTimeoutSeconds));
+        if (timeout < TypicalDeliveryTimeout)
+        {
+            _logger.LogWarning(
+                "Agent timeout is {Configured}s. One delivery to {Agent} can legitimately take up to about "
+                + "{Typical}s when the desktop session is disconnected, and will be cancelled before it "
+                + "finishes. Raise Agent timeout in Settings if deliveries keep timing out.",
+                timeout.TotalSeconds, adapter.Name, TypicalDeliveryTimeout.TotalSeconds);
+        }
+
+        using var timeoutCts = new CancellationTokenSource(timeout);
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken, timeoutCts.Token, _runCts?.Token ?? CancellationToken.None);
         var token = linkedCts.Token;
