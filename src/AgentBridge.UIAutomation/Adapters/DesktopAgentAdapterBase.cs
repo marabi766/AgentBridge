@@ -111,6 +111,33 @@ public abstract class DesktopAgentAdapterBase : IAgentAdapter, IDisposable
         }
     }
 
+    public Task<bool> IsProcessingAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        using var processes = new ProcessListDisposer(GetCandidateProcesses(ProcessName));
+        var process = processes.Processes.FirstOrDefault();
+        if (process is null)
+        {
+            return Task.FromResult(false);
+        }
+
+        try
+        {
+            var window = _automation.Value.FromHandle(process.MainWindowHandle);
+            var processing = window.FindAllDescendants().Any(element =>
+                Safe(() => element.IsEnabled, false)
+                && !Safe(() => element.IsOffscreen, true)
+                && ElementSemantics.IsProcessingButton(
+                    Safe(() => element.ControlType.ToString()), Safe(() => element.Name)));
+            return Task.FromResult(processing);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to query processing state for {Agent}.", Name);
+            return Task.FromResult(false);
+        }
+    }
+
     public Task<bool> ActivateAsync(CancellationToken cancellationToken)
     {
         using var processes = new ProcessListDisposer(GetCandidateProcesses(ProcessName));
@@ -242,6 +269,12 @@ public abstract class DesktopAgentAdapterBase : IAgentAdapter, IDisposable
         {
             return "(unavailable)";
         }
+    }
+
+    private static T Safe<T>(Func<T> read, T fallback = default!)
+    {
+        try { return read(); }
+        catch { return fallback; }
     }
 
     private static void DumpElement(AutomationElement element, int depth, int maxDepth, StringBuilder sb)

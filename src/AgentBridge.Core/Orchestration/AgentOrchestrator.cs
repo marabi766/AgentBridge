@@ -50,6 +50,8 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
     private GitRepositoryStatus? _lastGitStatus;
     private AgentStatus _lastClaudeAgentStatus = AgentStatus.Unknown;
     private AgentStatus _lastCodexAgentStatus = AgentStatus.Unknown;
+    private int _claudeCompletionProbeActive;
+    private int _codexCompletionProbeActive;
 
     public AgentOrchestrator(
         IStateStore stateStore,
@@ -231,6 +233,49 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
         }
     }
 
+    public async Task RetryCodexDeliveryAsync(CancellationToken cancellationToken)
+    {
+        IFileWatcher? claudeWatcher = null;
+        IFileWatcher? codexWatcher = null;
+        await _actionLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var retryableError = _stateMachine.Current == BridgeState.Error
+                && _lastError?.StartsWith("Failed to deliver instruction to Codex", StringComparison.Ordinal) == true;
+            if (_stateMachine.Current != BridgeState.WaitingForCodexPrompt && !retryableError)
+            {
+                throw new InvalidOperationException("Codex delivery can only be retried while waiting for its prompt or after a delivery failure.");
+            }
+
+            if (_currentIteration < 1 || string.IsNullOrWhiteSpace(_lastClaudeReportHash))
+            {
+                throw new InvalidOperationException("There is no verified Claude report available to resend.");
+            }
+
+            if (_runCts is null)
+            {
+                EnsureWatchers();
+                _runCts = new CancellationTokenSource();
+                _claudeWatcher!.Start();
+                _codexWatcher!.Start();
+            }
+            claudeWatcher = _claudeWatcher;
+            codexWatcher = _codexWatcher;
+
+            _lastError = null;
+            Transition(BridgeState.WaitingForCodex, $"Retrying Codex delivery for iteration {_currentIteration}");
+            await PersistStateAsync(cancellationToken).ConfigureAwait(false);
+            await InvokeCodexAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _actionLock.Release();
+        }
+
+        if (claudeWatcher is not null) await claudeWatcher.CheckNowAsync(cancellationToken).ConfigureAwait(false);
+        if (codexWatcher is not null) await codexWatcher.CheckNowAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task ContinueWaitingForClaudeAsync(CancellationToken cancellationToken)
     {
         await _actionLock.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -247,6 +292,35 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             EnsureWatchers();
             _runCts ??= new CancellationTokenSource();
             Transition(BridgeState.WaitingForClaudeReport, _lastAction);
+            await PersistStateAsync(cancellationToken).ConfigureAwait(false);
+            _claudeWatcher!.Start();
+            _codexWatcher!.Start();
+        }
+        finally
+        {
+            _actionLock.Release();
+        }
+
+        await _claudeWatcher!.CheckNowAsync(cancellationToken).ConfigureAwait(false);
+        await _codexWatcher!.CheckNowAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task ContinueWaitingForCodexAsync(CancellationToken cancellationToken)
+    {
+        await _actionLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_stateMachine.Current != BridgeState.Error
+                || _lastError?.StartsWith("Failed to deliver instruction to Codex", StringComparison.Ordinal) != true)
+            {
+                throw new InvalidOperationException("Only a timed-out Codex delivery can be acknowledged.");
+            }
+
+            _lastError = null;
+            _lastAction = $"Operator verified Codex delivery; waiting for iteration {_currentIteration} prompt";
+            EnsureWatchers();
+            _runCts ??= new CancellationTokenSource();
+            Transition(BridgeState.WaitingForCodexPrompt, _lastAction);
             await PersistStateAsync(cancellationToken).ConfigureAwait(false);
             _claudeWatcher!.Start();
             _codexWatcher!.Start();
@@ -458,6 +532,12 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
                 return;
             }
 
+            if (await DeferFileWhileAgentIsProcessingAsync(
+                    AgentRole.Claude, _claudeWatcher!, token).ConfigureAwait(false))
+            {
+                return;
+            }
+
             if (string.Equals(e.ContentHashSha256, _lastClaudeReportHash, StringComparison.Ordinal))
             {
                 _logger.LogDebug("Ignoring duplicate ClaudeResultReport.md hash {Hash}.", e.ContentHashSha256);
@@ -518,6 +598,12 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
                 return;
             }
 
+            if (await DeferFileWhileAgentIsProcessingAsync(
+                    AgentRole.Codex, _codexWatcher!, token).ConfigureAwait(false))
+            {
+                return;
+            }
+
             if (string.Equals(e.ContentHashSha256, _lastCodexPromptHash, StringComparison.Ordinal))
             {
                 _logger.LogDebug("Ignoring duplicate CodexPrompt.md hash {Hash}.", e.ContentHashSha256);
@@ -553,6 +639,68 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
     // ------------------------------------------------------------------
     // Agent invocation
     // ------------------------------------------------------------------
+
+    private async Task<bool> DeferFileWhileAgentIsProcessingAsync(
+        AgentRole role,
+        IFileWatcher watcher,
+        CancellationToken cancellationToken)
+    {
+        var adapter = _agentAdapterProvider.GetAdapter(role);
+        if (!await adapter.IsProcessingAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return false;
+        }
+
+        ref var activeProbe = ref (role == AgentRole.Claude
+            ? ref _claudeCompletionProbeActive
+            : ref _codexCompletionProbeActive);
+        if (Interlocked.Exchange(ref activeProbe, 1) == 0)
+        {
+            _ = WaitForAgentCompletionAndRecheckAsync(role, adapter, watcher, cancellationToken);
+        }
+
+        _logger.LogInformation(
+            "Deferring {Agent} protocol file: the desktop agent is still processing.",
+            role);
+        return true;
+    }
+
+    private async Task WaitForAgentCompletionAndRecheckAsync(
+        AgentRole role,
+        IAgentAdapter adapter,
+        IFileWatcher watcher,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (await adapter.IsProcessingAsync(cancellationToken).ConfigureAwait(false))
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
+            }
+
+            _logger.LogInformation("{Agent} processing finished; rechecking its protocol file.", role);
+            await watcher.CheckNowAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Normal stop/pause lifecycle.
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed while waiting to recheck the {Agent} protocol file.", role);
+        }
+        finally
+        {
+            if (role == AgentRole.Claude)
+            {
+                Interlocked.Exchange(ref _claudeCompletionProbeActive, 0);
+            }
+            else
+            {
+                Interlocked.Exchange(ref _codexCompletionProbeActive, 0);
+            }
+        }
+    }
 
     private async Task InvokeCodexAsync(CancellationToken cancellationToken)
     {

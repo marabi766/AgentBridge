@@ -147,9 +147,12 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
                 // an exact rendered copy is still a verifiable retry receipt.
                 var receiptObserved = receiptCountAfter > receiptCountBefore
                     || (receiptCountBefore > 0 && receiptCountAfter > 0);
-                if (inputCleared && receiptObserved)
+                var processingObserved = HasActiveProcessingControl(conversation);
+                if (inputCleared && (receiptObserved || processingObserved))
                 {
-                    logger.LogInformation("Message delivery verified from cleared input and a new exact rendered receipt.");
+                    logger.LogInformation(
+                        "Message delivery verified from cleared input and {Evidence}.",
+                        receiptObserved ? "an exact rendered receipt" : "an active processing control");
                     return true;
                 }
 
@@ -211,6 +214,13 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
     private static int CountExactRenderedMessages(AutomationElement conversation, string normalizedMessage) =>
         conversation.FindAllDescendants().Count(element =>
             ElementSemantics.IsExactRenderedReceipt(Safe(() => element.Name), normalizedMessage));
+
+    private static bool HasActiveProcessingControl(AutomationElement conversation) =>
+        conversation.FindAllDescendants().Any(element =>
+            Safe(() => element.IsEnabled, false)
+            && !Safe(() => element.IsOffscreen, true)
+            && ElementSemantics.IsProcessingButton(
+                Safe(() => element.ControlType.ToString()), Safe(() => element.Name)));
 
     private static void TryClear(FlaUI.Core.Patterns.IValuePattern valuePattern)
     {

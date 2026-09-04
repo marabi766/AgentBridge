@@ -121,6 +121,7 @@
                             <Button Content="▶ Start" Command="{Binding StartCommand}" automation:AutomationProperties.HelpText="Starts or safely resumes the bridge." />
                             <Button Content="Ⅱ Pause" Command="{Binding PauseCommand}" automation:AutomationProperties.HelpText="Pauses processing while keeping the current iteration." />
                             <Button Content="▶ Resume" Command="{Binding ResumeCommand}" />
+                            <Button Content="↻ Retry Codex" Command="{Binding RetryCodexCommand}" automation:AutomationProperties.HelpText="Resends the current Claude report instruction to Codex without resetting iteration progress." />
                             <Button Content="↻ Retry Claude" Command="{Binding RetryClaudeCommand}" automation:AutomationProperties.HelpText="Resends the current Codex instruction to Claude without resetting iteration progress." />
                             <Button Content="■ Stop" Command="{Binding StopCommand}" Foreground="{DynamicResource ErrorBrush}" />
                             <Button Content="↻ Refresh" Command="{Binding RefreshCommand}" />
@@ -133,6 +134,7 @@
                                 <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
                                     <Button Content="Open Diagnostics" Command="{Binding NavigateCommand}" CommandParameter="Diagnostics" />
                                     <Button Content="Continue waiting for Claude" Command="{Binding ContinueWaitingForClaudeCommand}" />
+                                    <Button Content="Continue waiting for Codex" Command="{Binding ContinueWaitingForCodexCommand}" />
                                     <Button Content="Reset state…" Command="{Binding ResetStateCommand}" Foreground="{DynamicResource ErrorBrush}" />
                                 </StackPanel>
                             </StackPanel>

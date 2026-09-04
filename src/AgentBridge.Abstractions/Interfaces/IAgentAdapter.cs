@@ -28,6 +28,9 @@ public interface IAgentAdapter
 
     Task<bool> IsReadyAsync(CancellationToken cancellationToken);
 
+    /// <summary>True while the desktop agent exposes an active response-generation control.</summary>
+    Task<bool> IsProcessingAsync(CancellationToken cancellationToken);
+
     Task<bool> ActivateAsync(CancellationToken cancellationToken);
 
     Task<bool> FindConversationAsync(CancellationToken cancellationToken);

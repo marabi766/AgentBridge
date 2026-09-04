@@ -103,6 +103,13 @@ public class BridgeStateMachineTests
     }
 
     [Fact]
+    public void ErrorFromCodexDelivery_CanRetryOrReturnToPromptWaiting()
+    {
+        Assert.True(BridgeStateMachine.IsValidTransition(BridgeState.Error, BridgeState.WaitingForCodex));
+        Assert.True(BridgeStateMachine.IsValidTransition(BridgeState.Error, BridgeState.WaitingForCodexPrompt));
+    }
+
+    [Fact]
     public void StateChanged_EventFires_WithPreviousAndNewState()
     {
         var sm = new BridgeStateMachine();

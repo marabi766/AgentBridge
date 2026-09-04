@@ -15,6 +15,8 @@ public sealed class FakeAgentAdapterState
 
     public bool IsReady { get; set; } = true;
 
+    public bool IsProcessing { get; set; }
+
     public bool ActivateSucceeds { get; set; } = true;
 
     public bool FindConversationSucceeds { get; set; } = true;
@@ -48,6 +50,7 @@ public sealed class FakeAgentAdapterState
         IsApplicationRunning = true;
         LaunchSucceeds = true;
         IsReady = true;
+        IsProcessing = false;
         ActivateSucceeds = true;
         FindConversationSucceeds = true;
         FindInputBoxSucceeds = true;

@@ -21,8 +21,14 @@ public interface IOrchestratorService
     /// <summary>Resends the current Codex instruction to Claude without advancing or resetting the cycle.</summary>
     Task RetryClaudeDeliveryAsync(CancellationToken cancellationToken);
 
+    /// <summary>Resends the current Claude report instruction to Codex without advancing the cycle.</summary>
+    Task RetryCodexDeliveryAsync(CancellationToken cancellationToken);
+
     /// <summary>Returns a timed-out Claude delivery to report-waiting after the operator verifies it appeared.</summary>
     Task ContinueWaitingForClaudeAsync(CancellationToken cancellationToken);
+
+    /// <summary>Returns a timed-out Codex delivery to prompt-waiting after the operator verifies it appeared.</summary>
+    Task ContinueWaitingForCodexAsync(CancellationToken cancellationToken);
 
     Task StopAsync(CancellationToken cancellationToken);
 

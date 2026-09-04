@@ -36,6 +36,9 @@ public abstract class FakeAgentAdapterBase(string name, AgentRole role) : IAgent
         return Task.FromResult(State.IsReady);
     }
 
+    public Task<bool> IsProcessingAsync(CancellationToken cancellationToken) =>
+        Task.FromResult(State.IsProcessing);
+
     public Task<bool> ActivateAsync(CancellationToken cancellationToken)
     {
         State.ActivateCallCount++;

@@ -34,6 +34,16 @@ public sealed class ElementSemanticsTests
         Assert.Equal(expected, ElementSemantics.IsPreferredCurrentConversationMarker(type, name, identifier));
 
     [Theory]
+    [InlineData("Button", "RASTA Project", "sidebar-item selected", "RASTA Project", true)]
+    [InlineData("Button", "RASTA Project", "title-button", "RASTA Project", false)]
+    [InlineData("Button", "RASTA Project Docs", "sidebar-item", "RASTA Project", false)]
+    [InlineData("Group", "RASTA Project", "sidebar-item", "RASTA Project", false)]
+    [InlineData("Button", "RASTA Project", "sidebar-item folder-row", "RASTA Project", false)]
+    public void ConversationNavigationCandidate_RequiresUniqueExactSidebarButton(
+        string type, string name, string css, string identifier, bool expected) =>
+        Assert.Equal(expected, ElementSemantics.IsConversationNavigationCandidate(type, name, css, identifier));
+
+    [Theory]
     [InlineData("Edit", "Prompt", "tiptap ProseMirror")]
     [InlineData("Edit", "Do anything", "ProseMirror")]
     [InlineData("Edit", "Localized label", "editor ProseMirror")]
@@ -52,6 +62,13 @@ public sealed class ElementSemanticsTests
     [InlineData("Edit", "Send", false)]
     public void SendButton_RequiresExactButtonSemantics(string type, string name, bool expected) =>
         Assert.Equal(expected, ElementSemantics.IsSendButton(type, name));
+
+    [Theory]
+    [InlineData("Button", "Stop", true)]
+    [InlineData("Button", "Send", false)]
+    [InlineData("Text", "Stop", false)]
+    public void ProcessingButton_RequiresExactStopButton(string type, string name, bool expected) =>
+        Assert.Equal(expected, ElementSemantics.IsProcessingButton(type, name));
 
     [Theory]
     [InlineData("Complete the task", "Complete the task", true)]

@@ -5,7 +5,7 @@ namespace AgentBridge.UIAutomation.Locators;
 
 public sealed class SemanticConversationLocator(ILogger<SemanticConversationLocator> logger) : IConversationLocator
 {
-    public Task<AutomationElement?> FindConversationAsync(
+    public async Task<AutomationElement?> FindConversationAsync(
         AutomationElement mainWindow,
         string? conversationIdentifier,
         CancellationToken cancellationToken)
@@ -14,18 +14,13 @@ public sealed class SemanticConversationLocator(ILogger<SemanticConversationLoca
         if (string.IsNullOrWhiteSpace(conversationIdentifier))
         {
             logger.LogWarning("Conversation discovery refused: no conversation identifier is configured.");
-            return Task.FromResult<AutomationElement?>(null);
+            return null;
         }
 
         try
         {
             WarmUp(mainWindow, cancellationToken);
-            var markers = mainWindow.FindAllDescendants()
-                .Where(IsUsable)
-                .Where(element => ElementSemantics.IsCurrentConversationMarker(
-                    Safe(() => element.ControlType.ToString()), Safe(() => element.Name),
-                    Safe(() => element.ClassName), conversationIdentifier))
-                .ToArray();
+            var markers = FindCurrentMarkers(mainWindow, conversationIdentifier);
 
             // Claude exposes the selected session title more than once: a sidebar
             // entry, a plain header button, and one explicit "rename session"
@@ -39,27 +34,72 @@ public sealed class SemanticConversationLocator(ILogger<SemanticConversationLoca
 
             if (preferredMarkers.Length == 1)
             {
-                return Task.FromResult<AutomationElement?>(mainWindow);
+                return mainWindow;
             }
 
-            if (markers.Length != 1)
+            if (markers.Length == 1)
+            {
+                return mainWindow;
+            }
+
+            if (markers.Length > 1)
             {
                 logger.LogWarning(
                     "Conversation discovery refused: expected one current-title marker for '{Identifier}', found {Count}.",
                     conversationIdentifier, markers.Length);
-                return Task.FromResult<AutomationElement?>(null);
+                return null;
             }
 
-            // The verified current-title marker establishes the identity of the open
-            // conversation. Return the window so later selectors remain in that tree.
-            return Task.FromResult<AutomationElement?>(mainWindow);
+            var navigationCandidates = mainWindow.FindAllDescendants()
+                .Where(IsUsable)
+                .Where(element => ElementSemantics.IsConversationNavigationCandidate(
+                    Safe(() => element.ControlType.ToString()), Safe(() => element.Name),
+                    Safe(() => element.ClassName), conversationIdentifier))
+                .ToArray();
+            if (navigationCandidates.Length != 1)
+            {
+                logger.LogWarning(
+                    "Conversation discovery refused: no current marker and expected one sidebar target for '{Identifier}', found {Count}.",
+                    conversationIdentifier, navigationCandidates.Length);
+                return null;
+            }
+
+            navigationCandidates[0].Click();
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(4);
+            while (DateTime.UtcNow < deadline)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await Task.Delay(150, cancellationToken).ConfigureAwait(false);
+                markers = FindCurrentMarkers(mainWindow, conversationIdentifier);
+                preferredMarkers = markers
+                    .Where(element => ElementSemantics.IsPreferredCurrentConversationMarker(
+                        Safe(() => element.ControlType.ToString()), Safe(() => element.Name),
+                        conversationIdentifier))
+                    .ToArray();
+                if (preferredMarkers.Length == 1 || markers.Length == 1)
+                {
+                    logger.LogInformation("Opened and verified configured conversation '{Identifier}'.", conversationIdentifier);
+                    return mainWindow;
+                }
+            }
+
+            logger.LogWarning("Conversation navigation did not produce a verified current marker for '{Identifier}'.", conversationIdentifier);
+            return null;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogWarning(ex, "Conversation discovery failed.");
-            return Task.FromResult<AutomationElement?>(null);
+            return null;
         }
     }
+
+    private static AutomationElement[] FindCurrentMarkers(AutomationElement mainWindow, string conversationIdentifier) =>
+        mainWindow.FindAllDescendants()
+            .Where(IsUsable)
+            .Where(element => ElementSemantics.IsCurrentConversationMarker(
+                Safe(() => element.ControlType.ToString()), Safe(() => element.Name),
+                Safe(() => element.ClassName), conversationIdentifier))
+            .ToArray();
 
     private static void WarmUp(AutomationElement root, CancellationToken token)
     {

@@ -44,6 +44,16 @@ public static partial class ElementSemantics
             $"{Normalize(identifier)}, rename session",
             StringComparison.OrdinalIgnoreCase);
 
+    public static bool IsConversationNavigationCandidate(
+        string? controlType,
+        string? name,
+        string? className,
+        string identifier) =>
+        string.Equals(controlType, "Button", StringComparison.OrdinalIgnoreCase)
+        && string.Equals(Normalize(name), Normalize(identifier), StringComparison.OrdinalIgnoreCase)
+        && (className?.Contains("sidebar-item", StringComparison.OrdinalIgnoreCase) ?? false)
+        && !(className?.Contains("folder-row", StringComparison.OrdinalIgnoreCase) ?? false);
+
     public static bool IsInputCandidate(string? controlType, string? name, string? className)
     {
         if (!string.Equals(controlType, "Edit", StringComparison.OrdinalIgnoreCase))
@@ -60,6 +70,10 @@ public static partial class ElementSemantics
     public static bool IsSendButton(string? controlType, string? name) =>
         string.Equals(controlType, "Button", StringComparison.OrdinalIgnoreCase)
         && string.Equals(Normalize(name), "Send", StringComparison.OrdinalIgnoreCase);
+
+    public static bool IsProcessingButton(string? controlType, string? name) =>
+        string.Equals(controlType, "Button", StringComparison.OrdinalIgnoreCase)
+        && string.Equals(Normalize(name), "Stop", StringComparison.OrdinalIgnoreCase);
 
     public static bool IsExactRenderedReceipt(string? renderedName, string message)
     {

@@ -162,6 +162,31 @@ public class AgentOrchestratorTests
     }
 
     [Fact]
+    public async Task ClaudeReportChange_IsDeferredUntilClaudeStopsProcessing()
+    {
+        var harness = new OrchestratorTestHarness();
+        await harness.StartAsync();
+        harness.ClaudeAdapter.State.IsProcessing = true;
+        harness.ClaudeWatcher.ArrangeCheckNowResult("final report", "final-hash");
+
+        harness.ClaudeWatcher.RaiseStableChange("intermediate report", "intermediate-hash");
+        await Task.Delay(150);
+
+        var deferred = await harness.Orchestrator.GetStatusAsync(CancellationToken.None);
+        Assert.Equal(BridgeState.WaitingForClaudeReport, deferred.CurrentState);
+        Assert.Empty(harness.CodexAdapter.State.SentMessages);
+
+        harness.ClaudeAdapter.State.IsProcessing = false;
+        var completed = await harness.WaitForStateAsync(
+            BridgeState.WaitingForCodexPrompt,
+            TimeSpan.FromSeconds(3));
+
+        Assert.Equal(1, completed.CurrentIteration);
+        Assert.Single(harness.CodexAdapter.State.SentMessages);
+        Assert.Equal("final-hash", harness.StateStore.Current?.LastClaudeReportHash);
+    }
+
+    [Fact]
     public async Task ConcurrentIdenticalFileEvents_OnlyProcessOnce()
     {
         var harness = new OrchestratorTestHarness();
@@ -300,6 +325,55 @@ public class AgentOrchestratorTests
         Assert.NotNull(status.LastError);
         Assert.Contains("Codex", status.LastError);
         Assert.Equal(1, harness.CodexAdapter.State.SendMessageCallCount);
+    }
+
+    [Fact]
+    public async Task RetryCodexDelivery_AfterFailure_ResendsWithoutAdvancingIteration()
+    {
+        var config = BridgeConfiguration.CreateDefault() with
+        {
+            ProjectPath = "C:/fake/project",
+            DryRun = false,
+            RetryCount = 0,
+        };
+        var harness = new OrchestratorTestHarness(config);
+        harness.CodexAdapter.State.SendMessageSucceeds = false;
+        await harness.StartAsync();
+        harness.ClaudeWatcher.RaiseStableChange("r1", "h1");
+        await harness.WaitForStateAsync(BridgeState.Error);
+
+        harness.CodexAdapter.State.SendMessageSucceeds = true;
+        await harness.Orchestrator.RetryCodexDeliveryAsync(CancellationToken.None);
+
+        var status = await harness.WaitForStateAsync(BridgeState.WaitingForCodexPrompt);
+        Assert.Equal(1, status.CurrentIteration);
+        Assert.Equal(2, harness.CodexAdapter.State.SendMessageCallCount);
+        Assert.Single(harness.CodexAdapter.State.SentMessages);
+        Assert.Null(status.LastError);
+    }
+
+    [Fact]
+    public async Task RetryCodexDelivery_AfterRestartedError_ReactivatesBothWatchers()
+    {
+        var harness = new OrchestratorTestHarness();
+        harness.StateStore.SeedLoaded(new BridgeStateSnapshot
+        {
+            CurrentState = BridgeState.Error,
+            CurrentIteration = 2,
+            MaximumIterations = 50,
+            LastClaudeReportHash = "report-hash",
+            LastError = "Failed to deliver instruction to Codex for iteration 2.",
+            UpdatedAtUtc = DateTimeOffset.UtcNow,
+        });
+        await harness.StartAsync();
+
+        await harness.Orchestrator.RetryCodexDeliveryAsync(CancellationToken.None);
+
+        var status = await harness.WaitForStateAsync(BridgeState.WaitingForCodexPrompt);
+        Assert.Equal(2, status.CurrentIteration);
+        Assert.True(harness.ClaudeWatcher.IsRunning);
+        Assert.True(harness.CodexWatcher.IsRunning);
+        Assert.Single(harness.CodexAdapter.State.SentMessages);
     }
 
     [Fact]
