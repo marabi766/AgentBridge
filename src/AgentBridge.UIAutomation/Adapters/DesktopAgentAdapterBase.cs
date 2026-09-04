@@ -111,30 +111,35 @@ public abstract class DesktopAgentAdapterBase : IAgentAdapter, IDisposable
         }
     }
 
-    public Task<bool> IsProcessingAsync(CancellationToken cancellationToken)
+    public async Task<bool> IsProcessingAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         using var processes = new ProcessListDisposer(GetCandidateProcesses(ProcessName));
         var process = processes.Processes.FirstOrDefault();
         if (process is null)
         {
-            return Task.FromResult(false);
+            return false;
         }
 
         try
         {
             var window = _automation.Value.FromHandle(process.MainWindowHandle);
-            var processing = window.FindAllDescendants().Any(element =>
-                Safe(() => element.IsEnabled, false)
-                && !Safe(() => element.IsOffscreen, true)
-                && ElementSemantics.IsProcessingButton(
-                    Safe(() => element.ControlType.ToString()), Safe(() => element.Name)));
-            return Task.FromResult(processing);
+            // Chromium/Electron initially exposes an intentionally shallow UIA
+            // tree. The first descendant query enables AXMode; a later query
+            // exposes the real controls. Never treat that first empty tree as
+            // evidence that a running agent is idle.
+            if (HasActiveProcessingControl(window))
+            {
+                return true;
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
+            return HasActiveProcessingControl(window);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to query processing state for {Agent}.", Name);
-            return Task.FromResult(false);
+            return false;
         }
     }
 
@@ -319,6 +324,13 @@ public abstract class DesktopAgentAdapterBase : IAgentAdapter, IDisposable
         try { return read(); }
         catch { return fallback; }
     }
+
+    private static bool HasActiveProcessingControl(AutomationElement window) =>
+        window.FindAllDescendants().Any(element =>
+            Safe(() => element.IsEnabled, false)
+            && !Safe(() => element.IsOffscreen, true)
+            && ElementSemantics.IsProcessingButton(
+                Safe(() => element.ControlType.ToString()), Safe(() => element.Name)));
 
     private static void DumpElement(AutomationElement element, int depth, int maxDepth, StringBuilder sb)
     {

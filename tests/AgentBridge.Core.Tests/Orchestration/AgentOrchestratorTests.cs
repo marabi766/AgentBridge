@@ -199,6 +199,27 @@ public class AgentOrchestratorTests
     }
 
     [Fact]
+    public async Task ClaudeReportChange_IsDeferredWhenClaudeStatusCannotVerifyIdle()
+    {
+        var harness = new OrchestratorTestHarness();
+        await harness.StartAsync();
+        harness.ClaudeAdapter.State.Status = AgentStatus.Unreachable;
+        harness.ClaudeWatcher.ArrangeCheckNowResult("verified later", "verified-hash");
+
+        harness.ClaudeWatcher.RaiseStableChange("possibly partial", "partial-hash");
+        await Task.Delay(150);
+
+        var deferred = await harness.Orchestrator.GetStatusAsync(CancellationToken.None);
+        Assert.Equal(BridgeState.WaitingForClaudeReport, deferred.CurrentState);
+        Assert.Empty(harness.CodexAdapter.State.SentMessages);
+
+        harness.ClaudeAdapter.State.Status = AgentStatus.Ready;
+        var completed = await harness.WaitForStateAsync(BridgeState.WaitingForCodexPrompt, TimeSpan.FromSeconds(3));
+        Assert.Equal(1, completed.CurrentIteration);
+        Assert.Equal("verified-hash", harness.StateStore.Current?.LastClaudeReportHash);
+    }
+
+    [Fact]
     public async Task ClaudeReportChange_WaitsThroughQuotaResetAndAutomaticResume()
     {
         var harness = new OrchestratorTestHarness();
