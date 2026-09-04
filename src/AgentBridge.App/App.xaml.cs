@@ -51,14 +51,18 @@ public partial class App : System.Windows.Application
         window.Show();
     }
 
-    protected override async void OnExit(ExitEventArgs e)
+    protected override void OnExit(ExitEventArgs e)
     {
         if (_host is not null)
         {
             try
             {
-                await _host.Services.GetRequiredService<IOrchestratorService>().StopAsync(CancellationToken.None);
-                await _host.StopAsync(TimeSpan.FromSeconds(5));
+                // WPF is already tearing down its Dispatcher here. Awaiting from an
+                // async void OnExit can strand the process after the window closes,
+                // leaving the single-instance mutex held without a usable UI.
+                _host.Services.GetRequiredService<IOrchestratorService>()
+                    .StopAsync(CancellationToken.None).GetAwaiter().GetResult();
+                _host.StopAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult();
             }
             finally
             {

@@ -490,7 +490,16 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
     {
         try
         {
-            return await _agentAdapterProvider.GetAdapter(role).GetStatusAsync(cancellationToken).ConfigureAwait(false);
+            var adapter = _agentAdapterProvider.GetAdapter(role);
+            // The visible Stop control is the strongest live signal available from
+            // both desktop agents. Check it first so the dashboard cannot report
+            // Ready while an agent is actively generating a response.
+            if (await adapter.IsProcessingAsync(cancellationToken).ConfigureAwait(false))
+            {
+                return AgentStatus.Busy;
+            }
+
+            return await adapter.GetStatusAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {

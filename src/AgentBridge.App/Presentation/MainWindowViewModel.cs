@@ -13,6 +13,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private readonly IAgentDiagnosticsService _diagnosticsService;
     private readonly IProjectService _projectService;
     private readonly SynchronizationContext _uiContext;
+    private readonly CancellationTokenSource _statusRefreshCts = new();
     private BridgeConfiguration _configuration = BridgeConfiguration.CreateDefault();
     private BridgeStatusView? _status;
     private string _currentPage = "Dashboard";
@@ -266,6 +267,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
                 await RunOperationAsync("Auto-starting…", _orchestrator.StartAsync);
             }
             await LoadActivityAsync();
+            _ = RefreshStatusPeriodicallyAsync(_statusRefreshCts.Token);
         }
         catch (Exception ex) { OperationMessage = $"Startup failed safely: {ex.Message}"; }
     }
@@ -356,6 +358,38 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             OperationMessage = "Status is current.";
         }
         catch (Exception ex) { OperationMessage = $"Could not refresh status: {ex.Message}"; }
+    }
+
+    private async Task RefreshStatusPeriodicallyAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+            while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+            {
+                try
+                {
+                    var status = await _orchestrator.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+                    _uiContext.Post(_ =>
+                    {
+                        Status = status;
+                        OperationMessage = "Status is current.";
+                    }, null);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _uiContext.Post(_ => OperationMessage = $"Could not refresh status: {ex.Message}", null);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Normal application shutdown.
+        }
     }
 
     private async Task LoadActivityAsync()
@@ -507,7 +541,12 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         ? "— not observed yet"
         : value.Value.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
 
-    public void Dispose() => _orchestrator.StatusChanged -= OnStatusChanged;
+    public void Dispose()
+    {
+        _statusRefreshCts.Cancel();
+        _statusRefreshCts.Dispose();
+        _orchestrator.StatusChanged -= OnStatusChanged;
+    }
 }
 
 public sealed record BridgeStartPointOption(

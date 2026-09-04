@@ -187,6 +187,18 @@ public class AgentOrchestratorTests
     }
 
     [Fact]
+    public async Task StatusReportsBusyWhenClaudeExposesActiveProcessing()
+    {
+        var harness = new OrchestratorTestHarness();
+        harness.ClaudeAdapter.State.IsProcessing = true;
+        harness.ClaudeAdapter.State.Status = AgentStatus.Ready;
+
+        var status = await harness.Orchestrator.GetStatusAsync(CancellationToken.None);
+
+        Assert.Equal(AgentStatus.Busy, status.ClaudeStatus);
+    }
+
+    [Fact]
     public async Task ClaudeReportChange_WaitsThroughQuotaResetAndAutomaticResume()
     {
         var harness = new OrchestratorTestHarness();
