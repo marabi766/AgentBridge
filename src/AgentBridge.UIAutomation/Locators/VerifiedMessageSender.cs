@@ -139,7 +139,9 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
             while (DateTime.UtcNow < deadline)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var inputCleared = string.IsNullOrWhiteSpace(valuePattern.Value.ValueOrDefault);
+                var currentInputValue = valuePattern.Value.ValueOrDefault;
+                var inputCleared = string.IsNullOrWhiteSpace(currentInputValue)
+                    || ElementSemantics.IsEditorPlaceholder(currentInputValue);
                 var receiptCountAfter = CountExactRenderedMessages(conversation, normalizedMessage);
                 // Chromium virtualizes older messages, so resending identical text
                 // may replace the prior rendered element instead of increasing the
@@ -159,7 +161,7 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
                 await Task.Delay(200, cancellationToken).ConfigureAwait(false);
             }
 
-            logger.LogError("Send was invoked once, but an exact delivery receipt could not be verified before timeout.");
+            logger.LogError("Send was invoked once, but neither a rendered receipt nor active processing could be verified before timeout.");
             return false;
         }
         catch (OperationCanceledException)
