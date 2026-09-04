@@ -21,6 +21,9 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
     // eight seconds in, and was present in full once the tree caught up. Waiting
     // costs nothing but time; giving up early discards a draft that did land.
     private static readonly TimeSpan DraftSettleTimeout = TimeSpan.FromSeconds(60);
+    // How long the composer must stay empty after Send before that alone counts
+    // as delivery. Long enough not to read a transient mid-edit empty state.
+    private static readonly TimeSpan ClearedDraftGrace = TimeSpan.FromSeconds(10);
     private const int AccessDenied = 5;
 
     public Task<bool> SendAsync(
@@ -263,6 +266,7 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
             sendInvoked = true;
 
             var deadline = DateTime.UtcNow + ReceiptTimeout;
+            DateTime? clearedSince = null;
             while (DateTime.UtcNow < deadline)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -285,13 +289,35 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
                     return true;
                 }
 
+                // The rendered copy is the preferred proof, but on a disconnected
+                // desktop the accessibility tree can lag past any sane deadline, so
+                // waiting for it turns delivered messages into reported failures —
+                // which is what invites a human to send the same instruction twice.
+                //
+                // The composer emptying is itself evidence, and it is evidence of
+                // this send specifically: the draft was written here, verified
+                // character for character, and Send was invoked on it once. Nothing
+                // but that invocation consumes it — a refused send leaves the draft
+                // in place. Requiring the empty state to hold rules out reading a
+                // half-applied edit.
+                clearedSince = inputCleared ? clearedSince ?? DateTime.UtcNow : null;
+                if (clearedSince is not null && DateTime.UtcNow - clearedSince >= ClearedDraftGrace)
+                {
+                    logger.LogWarning(
+                        "Message delivery accepted from a composer that has stayed empty for {Grace} after Send. "
+                        + "The sent message has not appeared in the accessibility tree, which is expected while the "
+                        + "desktop session is disconnected and its window is not repainting.",
+                        ClearedDraftGrace);
+                    return true;
+                }
+
                 await Task.Delay(200, cancellationToken).ConfigureAwait(false);
             }
 
             logger.LogError(
-                "Send was invoked once, but neither a rendered receipt nor active processing could be verified "
-                + "within {Timeout}. The message may well have been delivered — check the conversation before "
-                + "resending, or acknowledge the delivery, so the same instruction is not sent twice.",
+                "Send was invoked once, but the composer never emptied and no receipt appeared within {Timeout}. "
+                + "The message may still have been delivered — check the conversation before resending, or "
+                + "acknowledge the delivery, so the same instruction is not sent twice.",
                 ReceiptTimeout);
             return false;
         }
