@@ -11,8 +11,19 @@ public sealed class SingleInstanceCoordinator : IDisposable
 
     public SingleInstanceCoordinator(Action activateExisting)
     {
-        _mutex = new Mutex(initiallyOwned: true, MutexName, out var createdNew);
-        IsPrimary = createdNew;
+        // Do not use createdNew as the ownership test. A prior secondary process
+        // can keep the named mutex object alive after the primary exits even though
+        // nobody owns it. In that case createdNew is false, but this process must
+        // be allowed to acquire the abandoned/unowned mutex and become primary.
+        _mutex = new Mutex(initiallyOwned: false, MutexName);
+        try
+        {
+            IsPrimary = _mutex.WaitOne(TimeSpan.Zero);
+        }
+        catch (AbandonedMutexException)
+        {
+            IsPrimary = true;
+        }
         _activationEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ActivationEventName);
         if (IsPrimary)
         {
