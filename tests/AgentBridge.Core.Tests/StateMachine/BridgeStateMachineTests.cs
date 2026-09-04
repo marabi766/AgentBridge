@@ -110,6 +110,12 @@ public class BridgeStateMachineTests
     }
 
     [Fact]
+    public void WaitingForClaudeReport_CanExplicitlyRetryCodexAfterClaudeFinishes() =>
+        Assert.True(BridgeStateMachine.IsValidTransition(
+            BridgeState.WaitingForClaudeReport,
+            BridgeState.WaitingForCodex));
+
+    [Fact]
     public void StateChanged_EventFires_WithPreviousAndNewState()
     {
         var sm = new BridgeStateMachine();

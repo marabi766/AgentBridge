@@ -242,7 +242,8 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
         {
             var retryableError = _stateMachine.Current == BridgeState.Error
                 && _lastError?.StartsWith("Failed to deliver instruction to Codex", StringComparison.Ordinal) == true;
-            if (_stateMachine.Current != BridgeState.WaitingForCodexPrompt && !retryableError)
+            if (_stateMachine.Current is not (BridgeState.WaitingForClaudeReport or BridgeState.WaitingForCodexPrompt)
+                && !retryableError)
             {
                 throw new InvalidOperationException("Codex delivery can only be retried while waiting for its prompt or after a delivery failure.");
             }
@@ -250,6 +251,12 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             if (_currentIteration < 1 || string.IsNullOrWhiteSpace(_lastClaudeReportHash))
             {
                 throw new InvalidOperationException("There is no verified Claude report available to resend.");
+            }
+
+            if (await _agentAdapterProvider.GetAdapter(AgentRole.Claude)
+                    .IsProcessingAsync(cancellationToken).ConfigureAwait(false))
+            {
+                throw new InvalidOperationException("Claude is still processing; wait for it to finish before sending its report to Codex.");
             }
 
             if (_runCts is null)

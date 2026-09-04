@@ -377,6 +377,31 @@ public class AgentOrchestratorTests
     }
 
     [Fact]
+    public async Task RetryCodexDelivery_RefusesWhileClaudeIsStillProcessing()
+    {
+        var harness = new OrchestratorTestHarness();
+        harness.StateStore.SeedLoaded(new BridgeStateSnapshot
+        {
+            CurrentState = BridgeState.WaitingForClaudeReport,
+            CurrentIteration = 2,
+            MaximumIterations = 50,
+            LastClaudeReportHash = "report-hash",
+            UpdatedAtUtc = DateTimeOffset.UtcNow,
+        });
+        await harness.StartAsync();
+        harness.ClaudeAdapter.State.IsProcessing = true;
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            harness.Orchestrator.RetryCodexDeliveryAsync(CancellationToken.None));
+
+        Assert.Contains("still processing", error.Message);
+        Assert.Empty(harness.CodexAdapter.State.SentMessages);
+        Assert.Equal(
+            BridgeState.WaitingForClaudeReport,
+            (await harness.Orchestrator.GetStatusAsync(CancellationToken.None)).CurrentState);
+    }
+
+    [Fact]
     public async Task ReadinessFalse_IsRetriedWithinBudget_AndMessageIsNeverSent()
     {
         var config = BridgeConfiguration.CreateDefault() with

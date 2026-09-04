@@ -139,7 +139,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public bool CanRetryClaude => Status?.CurrentState == BridgeState.WaitingForClaudeReport
         && Status.CurrentIteration > 0;
     public bool CanRetryCodex => Status?.CurrentIteration > 0
-        && (Status.CurrentState == BridgeState.WaitingForCodexPrompt
+        && (Status.CurrentState is BridgeState.WaitingForClaudeReport or BridgeState.WaitingForCodexPrompt
             || Status.CurrentState == BridgeState.Error
             && Status.LastError?.StartsWith("Failed to deliver instruction to Codex", StringComparison.Ordinal) == true);
     public bool CanContinueWaitingForClaude => Status?.CurrentState == BridgeState.Error

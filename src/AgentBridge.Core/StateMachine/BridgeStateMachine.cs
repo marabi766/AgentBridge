@@ -16,7 +16,7 @@ public sealed class BridgeStateMachine
             [BridgeState.Idle] = [BridgeState.WaitingForClaudeReport, BridgeState.Stopped],
 
             [BridgeState.WaitingForClaudeReport] =
-                [BridgeState.ClaudeReportDetected, BridgeState.WaitingForClaude, BridgeState.Paused, BridgeState.Stopped, BridgeState.Error],
+                [BridgeState.ClaudeReportDetected, BridgeState.WaitingForCodex, BridgeState.WaitingForClaude, BridgeState.Paused, BridgeState.Stopped, BridgeState.Error],
 
             [BridgeState.ClaudeReportDetected] =
                 [BridgeState.WaitingForCodex, BridgeState.Paused, BridgeState.Stopped, BridgeState.Error],
