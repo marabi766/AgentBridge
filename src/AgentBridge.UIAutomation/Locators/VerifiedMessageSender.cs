@@ -246,30 +246,39 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
             // delivery no longer depends on getting one.
             Attempt(window.SetForeground);
             await Task.Delay(150, cancellationToken).ConfigureAwait(false);
-            if (!resumeExactDraft)
-            {
-                var focus = await TryFocusInputAsync(window, inputBox, cancellationToken).ConfigureAwait(false);
-                if (!focus.Focused)
-                {
-                    logger.LogWarning(
-                        focus.InputWasDenied
-                            ? "Message delivery refused: Windows denied synthetic input to this desktop. The screen is "
-                              + "locked, or a window from a higher-privilege process holds the foreground. Nothing was typed."
-                            : "Message delivery refused: keyboard focus could not be verified on the target input.");
-                    return false;
-                }
 
-                // Electron/Chromium rich-text editors can silently truncate long
-                // simulated keystroke sequences. The writable Value pattern is
-                // already required and is also what we use to verify/rollback the
-                // draft, so set the complete value atomically instead.
-                valuePattern.SetValue(normalizedMessage);
-                await SettleDraftAsync(conversation, valuePattern, normalizedMessage, cancellationToken).ConfigureAwait(false);
-            }
-            else
+            var focus = await TryFocusInputAsync(window, inputBox, cancellationToken).ConfigureAwait(false);
+            if (!focus.Focused)
             {
-                logger.LogInformation("Resuming an existing draft that exactly matches the requested message.");
+                logger.LogWarning(
+                    focus.InputWasDenied
+                        ? "Message delivery refused: Windows denied synthetic input to this desktop. The screen is "
+                          + "locked, or a window from a higher-privilege process holds the foreground. Nothing was typed."
+                        : "Message delivery refused: keyboard focus could not be verified on the target input.");
+                return false;
             }
+
+            if (resumeExactDraft)
+            {
+                logger.LogInformation(
+                    "The editor already shows this exact message. Writing it again rather than sending what is "
+                    + "there: an identical draft is normally the residue of an attempt that failed, and its text "
+                    + "may exist only in the accessibility layer while the editor itself holds nothing.");
+            }
+
+            // Electron/Chromium rich-text editors can silently truncate long
+            // simulated keystroke sequences. The writable Value pattern is
+            // already required and is also what we use to verify/rollback the
+            // draft, so set the complete value atomically instead.
+            //
+            // This runs even when the draft already matches. Skipping it once cost
+            // a delivery: Send was pressed on a leftover draft, the composer
+            // emptied, and nothing was ever posted — the visible text was a
+            // remnant the editor no longer had. Rewriting identical text changes
+            // nothing the operator can see and puts the editor in a state this
+            // code established.
+            valuePattern.SetValue(normalizedMessage);
+            await SettleDraftAsync(conversation, valuePattern, normalizedMessage, cancellationToken).ConfigureAwait(false);
             if (!string.Equals(
                     ElementSemantics.Normalize(ReadDraft(conversation, valuePattern)),
                     normalizedMessage,
