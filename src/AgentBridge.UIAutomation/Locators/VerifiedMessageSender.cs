@@ -119,6 +119,7 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
     /// judging a draft that is still being written.
     /// </summary>
     private static async Task SettleDraftAsync(
+        AutomationElement conversation,
         FlaUI.Core.Patterns.IValuePattern valuePattern,
         string expected,
         CancellationToken cancellationToken)
@@ -127,12 +128,52 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
         while (true)
         {
             await Task.Delay(250, cancellationToken).ConfigureAwait(false);
-            var current = ElementSemantics.Normalize(valuePattern.Value.ValueOrDefault);
+            var current = ElementSemantics.Normalize(ReadDraft(conversation, valuePattern));
             if (string.Equals(current, expected, StringComparison.Ordinal) || DateTime.UtcNow >= deadline)
             {
                 return;
             }
         }
+    }
+
+    /// <summary>
+    /// Reads what the editor currently holds, from an element located right now.
+    ///
+    /// Setting a value makes these editors rebuild the node behind the composer,
+    /// which leaves the element the delivery started from answering with a stale
+    /// value indefinitely. That was observed all evening as a 911 character
+    /// instruction reading back as 11 while the composer visibly held the whole
+    /// thing — on a locked desktop, on a disconnected one, and on a live one
+    /// alike, which is what ruled out every timing explanation. Re-finding the
+    /// input is what makes the readback describe the editor rather than a node
+    /// the editor has already discarded.
+    ///
+    /// Falls back to the original pattern when no input can be located, so a
+    /// window mid-render degrades to the old behaviour instead of throwing.
+    /// </summary>
+    private static string ReadDraft(
+        AutomationElement conversation,
+        FlaUI.Core.Patterns.IValuePattern original)
+    {
+        try
+        {
+            var live = conversation.FindAllDescendants().FirstOrDefault(element =>
+                ElementSemantics.IsInputCandidate(
+                    Safe(() => element.ControlType.ToString()),
+                    Safe(() => element.Name),
+                    Safe(() => element.ClassName)));
+            var pattern = live?.Patterns.Value.PatternOrDefault;
+            if (pattern is not null)
+            {
+                return pattern.Value.ValueOrDefault ?? string.Empty;
+            }
+        }
+        catch (Exception)
+        {
+            // Fall through to the original reference below.
+        }
+
+        return original.Value.ValueOrDefault ?? string.Empty;
     }
 
     /// <summary>Runs a best-effort focus nudge; the focus check is the verdict.</summary>
@@ -223,18 +264,18 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
                 // already required and is also what we use to verify/rollback the
                 // draft, so set the complete value atomically instead.
                 valuePattern.SetValue(normalizedMessage);
-                await SettleDraftAsync(valuePattern, normalizedMessage, cancellationToken).ConfigureAwait(false);
+                await SettleDraftAsync(conversation, valuePattern, normalizedMessage, cancellationToken).ConfigureAwait(false);
             }
             else
             {
                 logger.LogInformation("Resuming an existing draft that exactly matches the requested message.");
             }
             if (!string.Equals(
-                    ElementSemantics.Normalize(valuePattern.Value.ValueOrDefault),
+                    ElementSemantics.Normalize(ReadDraft(conversation, valuePattern)),
                     normalizedMessage,
                     StringComparison.Ordinal))
             {
-                var actual = ElementSemantics.Normalize(valuePattern.Value.ValueOrDefault);
+                var actual = ElementSemantics.Normalize(ReadDraft(conversation, valuePattern));
                 TryClear(valuePattern);
                 logger.LogWarning(
                     "Message delivery refused: the editor draft differed after input. ExpectedLength={ExpectedLength} ActualLength={ActualLength}.",
@@ -266,7 +307,7 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
             while (DateTime.UtcNow < deadline)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var currentInputValue = valuePattern.Value.ValueOrDefault;
+                var currentInputValue = ReadDraft(conversation, valuePattern);
                 var inputCleared = string.IsNullOrWhiteSpace(currentInputValue)
                     || ElementSemantics.IsEditorPlaceholder(currentInputValue);
                 var receiptCountAfter = CountExactRenderedMessages(conversation, normalizedMessage);
