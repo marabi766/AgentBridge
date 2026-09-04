@@ -25,6 +25,7 @@ public abstract class DesktopAgentAdapterBase : IAgentAdapter, IDisposable
     private readonly Lazy<UIA3Automation> _automation = new(() => new UIA3Automation());
     private AutomationElement? _conversation;
     private AutomationElement? _inputBox;
+    private DateTimeOffset _lastAccessibilityActivationUtc = DateTimeOffset.MinValue;
     private int _disposed;
 
     protected DesktopAgentAdapterBase(
@@ -249,10 +250,10 @@ public abstract class DesktopAgentAdapterBase : IAgentAdapter, IDisposable
             }
 
             var descendants = await GetWarmedDescendantsAsync(process.MainWindowHandle, cancellationToken).ConfigureAwait(false);
-            if (!ElementSemantics.HasUsableDesktopAccessibilityTree(descendants.Length))
+            if (!HasUsableAccessibilityTree(descendants))
             {
                 _logger.LogWarning(
-                    "{Agent} accessibility tree remained shallow after warm-up ({DescendantCount} descendants); status is indeterminate.",
+                    "{Agent} exposed no renderer document after warm-up ({DescendantCount} descendants); status is indeterminate.",
                     Name, descendants.Length);
                 // The desktop app is present and its window is responsive; only
                 // the Chromium accessibility renderer is not ready to prove its
@@ -265,20 +266,23 @@ public abstract class DesktopAgentAdapterBase : IAgentAdapter, IDisposable
             var conversationIdentifier = Role == AgentRole.Claude
                 ? configuration.ClaudeConversationIdentifier
                 : configuration.CodexConversationIdentifier;
-            if (!HasConfiguredConversationMarker(descendants, conversationIdentifier))
+            // The configured conversation does not have to be the one on screen.
+            // The delivery path navigates to it and re-verifies before typing, so
+            // a uniquely reachable sidebar entry is just as good as an open one.
+            // Only a conversation that cannot be reached at all is indeterminate.
+            var isCurrentConversation = HasConfiguredConversationMarker(descendants, conversationIdentifier);
+            if (!isCurrentConversation && !HasUniqueConversationNavigationTarget(descendants, conversationIdentifier))
             {
                 _logger.LogWarning(
-                    "The configured {Agent} conversation '{Conversation}' could not be verified in the current window; status is indeterminate.",
+                    "The configured {Agent} conversation '{Conversation}' is neither open nor uniquely reachable from the sidebar; status is indeterminate.",
                     Name, conversationIdentifier);
                 return AgentStatus.Unknown;
             }
 
-            var processing = descendants.Any(element =>
-                Safe(() => element.IsEnabled, false)
-                && !Safe(() => element.IsOffscreen, true)
-                && ElementSemantics.IsProcessingButton(
-                    Safe(() => element.ControlType.ToString()), Safe(() => element.Name)));
-            if (processing)
+            // Only the conversation currently on screen can be proven to be
+            // streaming. A background conversation never reports Busy here; the
+            // orchestrator rechecks once it has been brought to the front.
+            if (isCurrentConversation && HasActiveProcessingControl(descendants))
             {
                 return AgentStatus.Busy;
             }
@@ -358,7 +362,7 @@ public abstract class DesktopAgentAdapterBase : IAgentAdapter, IDisposable
         CancellationToken cancellationToken)
     {
         var initial = _automation.Value.FromHandle(windowHandle).FindAllDescendants();
-        if (ElementSemantics.HasUsableDesktopAccessibilityTree(initial.Length))
+        if (HasUsableAccessibilityTree(initial))
         {
             return initial;
         }
@@ -366,19 +370,50 @@ public abstract class DesktopAgentAdapterBase : IAgentAdapter, IDisposable
         // Electron enables the renderer accessibility tree asynchronously. A
         // second sample after one second is often enough, but Claude sometimes
         // needs another render turn while tools are streaming.
+        var latest = initial;
         for (var attempt = 0; attempt < 2; attempt++)
         {
             await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
             // Reacquire the root after Chromium has enabled its renderer AX tree;
             // querying through the original element can retain the shallow snapshot.
             var warmed = _automation.Value.FromHandle(windowHandle).FindAllDescendants();
-            if (ElementSemantics.HasUsableDesktopAccessibilityTree(warmed.Length) || attempt == 1)
+            latest = warmed;
+            if (HasUsableAccessibilityTree(warmed))
             {
                 return warmed;
             }
         }
 
-        return initial;
+        // When an Electron window has stayed in its shell-only accessibility
+        // mode, bringing it forward once prompts the renderer to expose its AX
+        // tree. This is deliberately a last resort, only after the normal
+        // passive warm-up failed, and is throttled so status refreshes do not
+        // continuously steal focus from the operator.
+        if (DateTimeOffset.UtcNow - _lastAccessibilityActivationUtc >= TimeSpan.FromSeconds(20))
+        {
+            try
+            {
+                var window = _automation.Value.FromHandle(windowHandle).AsWindow();
+                if (window is not null)
+                {
+                    window.SetForeground();
+                    _lastAccessibilityActivationUtc = DateTimeOffset.UtcNow;
+                    await Task.Delay(TimeSpan.FromMilliseconds(750), cancellationToken).ConfigureAwait(false);
+                    var foregroundWarmed = _automation.Value.FromHandle(windowHandle).FindAllDescendants();
+                    if (HasUsableAccessibilityTree(foregroundWarmed))
+                    {
+                        _logger.LogInformation("Activated {Agent} once to recover its Electron accessibility tree.", Name);
+                        return foregroundWarmed;
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogDebug(ex, "Could not activate {Agent} for accessibility recovery.", Name);
+            }
+        }
+
+        return latest;
     }
 
     private static bool HasConfiguredConversationMarker(
@@ -393,6 +428,33 @@ public abstract class DesktopAgentAdapterBase : IAgentAdapter, IDisposable
                 Safe(() => element.Name),
                 Safe(() => element.ClassName),
                 conversationIdentifier));
+
+    /// <summary>
+    /// True once Chromium has published its renderer document, which is the point
+    /// at which the window's real controls are visible to UI Automation.
+    /// </summary>
+    private static bool HasUsableAccessibilityTree(IEnumerable<AutomationElement> elements) =>
+        elements.Any(element => ElementSemantics.IsRendererDocumentRoot(
+            Safe(() => element.ControlType.ToString()),
+            Safe(() => element.AutomationId)));
+
+    /// <summary>
+    /// Mirrors the navigation rule the conversation locator applies: exactly one
+    /// sidebar entry may match the configured identifier, otherwise the target is
+    /// ambiguous and must not be treated as reachable.
+    /// </summary>
+    private static bool HasUniqueConversationNavigationTarget(
+        IEnumerable<AutomationElement> elements,
+        string? conversationIdentifier) =>
+        !string.IsNullOrWhiteSpace(conversationIdentifier)
+        && elements.Count(element =>
+            Safe(() => element.IsEnabled, false)
+            && !Safe(() => element.IsOffscreen, true)
+            && ElementSemantics.IsConversationNavigationCandidate(
+                Safe(() => element.ControlType.ToString()),
+                Safe(() => element.Name),
+                Safe(() => element.ClassName),
+                conversationIdentifier)) == 1;
 
     private static bool HasActiveProcessingControl(IEnumerable<AutomationElement> elements) =>
         elements.Any(element =>

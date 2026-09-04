@@ -922,6 +922,20 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             if (!await _retryPolicy.ExecuteUntilTrueAsync(t => adapter.ActivateAsync(t), retryOptions, token).ConfigureAwait(false)) return false;
             if (!await _retryPolicy.ExecuteUntilTrueAsync(t => adapter.IsReadyAsync(t), retryOptions, token).ConfigureAwait(false)) return false;
             if (!await _retryPolicy.ExecuteUntilTrueAsync(t => adapter.FindConversationAsync(t), retryOptions, token).ConfigureAwait(false)) return false;
+
+            // A conversation that was only reachable from the sidebar could not be
+            // observed for activity until it was opened above. Now that it is on
+            // screen, refuse to type into it while it is still streaming.
+            if (!await _retryPolicy.ExecuteUntilTrueAsync(
+                    async t => !await adapter.IsProcessingAsync(t).ConfigureAwait(false),
+                    retryOptions, token).ConfigureAwait(false))
+            {
+                _logger.LogWarning(
+                    "{Agent} is still processing in the configured conversation; not delivering this instruction.",
+                    adapter.Name);
+                return false;
+            }
+
             if (!await _retryPolicy.ExecuteUntilTrueAsync(t => adapter.FindInputBoxAsync(t), retryOptions, token).ConfigureAwait(false)) return false;
 
             return await adapter.SendMessageAsync(message, token).ConfigureAwait(false);

@@ -4,11 +4,6 @@ namespace AgentBridge.UIAutomation.Locators;
 
 public static partial class ElementSemantics
 {
-    // Chromium initially exposes only a tiny shell tree to UI Automation. A
-    // normal, usable Claude/Codex window exposes many more descendants once its
-    // renderer accessibility tree has warmed up.
-    public const int MinimumUsableDesktopAccessibilityDescendants = 25;
-
     public static string Normalize(string? value) =>
         Whitespace().Replace(value?.Trim() ?? string.Empty, " ");
 
@@ -100,8 +95,15 @@ public static partial class ElementSemantics
         return normalized is "Type / for commands" or "Do anything" or "Prompt" or "Ask anything";
     }
 
-    public static bool HasUsableDesktopAccessibilityTree(int descendantCount) =>
-        descendantCount >= MinimumUsableDesktopAccessibilityDescendants;
+    // Chromium initially exposes only a tiny shell tree (RootView, NonClientView,
+    // caption buttons) to UI Automation and publishes its renderer document once
+    // the accessibility tree has been enabled. The presence of that document root
+    // is the actual warm-up signal; the number of shell elements is not, because a
+    // fully warmed window can legitimately expose few controls while a shell-only
+    // window can expose many.
+    public static bool IsRendererDocumentRoot(string? controlType, string? automationId) =>
+        string.Equals(controlType, "Document", StringComparison.OrdinalIgnoreCase)
+        && Normalize(automationId).Length > 0;
 
     [GeneratedRegex(@"\s+")]
     private static partial Regex Whitespace();

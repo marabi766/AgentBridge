@@ -104,9 +104,14 @@ public sealed class ElementSemanticsTests
         Assert.Equal(expected, ElementSemantics.IsEditorPlaceholder(value));
 
     [Theory]
-    [InlineData(24, false)]
-    [InlineData(25, true)]
-    [InlineData(180, true)]
-    public void AccessibilityTree_RequiresEnoughDescendantsToClaimAgentIsIdle(int descendantCount, bool expected) =>
-        Assert.Equal(expected, ElementSemantics.HasUsableDesktopAccessibilityTree(descendantCount));
+    [InlineData("Document", "RootWebArea", true)]
+    [InlineData("document", "RootWebArea", true)]
+    [InlineData("Pane", "RootWebArea", false)]
+    [InlineData("Document", "", false)]
+    [InlineData("Button", "", false)]
+    public void RendererDocumentRoot_IsTheWarmedAccessibilityTreeSignal(
+        string controlType,
+        string automationId,
+        bool expected) =>
+        Assert.Equal(expected, ElementSemantics.IsRendererDocumentRoot(controlType, automationId));
 }
