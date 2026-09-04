@@ -4,6 +4,11 @@ namespace AgentBridge.UIAutomation.Locators;
 
 public static partial class ElementSemantics
 {
+    // Chromium initially exposes only a tiny shell tree to UI Automation. A
+    // normal, usable Claude/Codex window exposes many more descendants once its
+    // renderer accessibility tree has warmed up.
+    public const int MinimumUsableDesktopAccessibilityDescendants = 25;
+
     public static string Normalize(string? value) =>
         Whitespace().Replace(value?.Trim() ?? string.Empty, " ");
 
@@ -94,6 +99,9 @@ public static partial class ElementSemantics
         var normalized = Normalize(value);
         return normalized is "Type / for commands" or "Do anything" or "Prompt" or "Ask anything";
     }
+
+    public static bool HasUsableDesktopAccessibilityTree(int descendantCount) =>
+        descendantCount >= MinimumUsableDesktopAccessibilityDescendants;
 
     [GeneratedRegex(@"\s+")]
     private static partial Regex Whitespace();

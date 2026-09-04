@@ -123,18 +123,12 @@ public abstract class DesktopAgentAdapterBase : IAgentAdapter, IDisposable
 
         try
         {
-            var window = _automation.Value.FromHandle(process.MainWindowHandle);
+            var elements = await GetWarmedDescendantsAsync(process.MainWindowHandle, cancellationToken).ConfigureAwait(false);
             // Chromium/Electron initially exposes an intentionally shallow UIA
             // tree. The first descendant query enables AXMode; a later query
             // exposes the real controls. Never treat that first empty tree as
             // evidence that a running agent is idle.
-            if (HasActiveProcessingControl(window))
-            {
-                return true;
-            }
-
-            await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
-            return HasActiveProcessingControl(window);
+            return HasActiveProcessingControl(elements);
         }
         catch (Exception ex)
         {
@@ -244,7 +238,14 @@ public abstract class DesktopAgentAdapterBase : IAgentAdapter, IDisposable
                 return AgentStatus.Unreachable;
             }
 
-            var descendants = window.FindAllDescendants();
+            var descendants = await GetWarmedDescendantsAsync(process.MainWindowHandle, cancellationToken).ConfigureAwait(false);
+            if (!ElementSemantics.HasUsableDesktopAccessibilityTree(descendants.Length))
+            {
+                _logger.LogWarning(
+                    "{Agent} accessibility tree remained shallow after warm-up ({DescendantCount} descendants); status is indeterminate.",
+                    Name, descendants.Length);
+                return AgentStatus.Unreachable;
+            }
             var processing = descendants.Any(element =>
                 Safe(() => element.IsEnabled, false)
                 && !Safe(() => element.IsOffscreen, true)
@@ -325,8 +326,24 @@ public abstract class DesktopAgentAdapterBase : IAgentAdapter, IDisposable
         catch { return fallback; }
     }
 
-    private static bool HasActiveProcessingControl(AutomationElement window) =>
-        window.FindAllDescendants().Any(element =>
+    private async Task<AutomationElement[]> GetWarmedDescendantsAsync(
+        IntPtr windowHandle,
+        CancellationToken cancellationToken)
+    {
+        var initial = _automation.Value.FromHandle(windowHandle).FindAllDescendants();
+        if (ElementSemantics.HasUsableDesktopAccessibilityTree(initial.Length))
+        {
+            return initial;
+        }
+
+        await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
+        // Reacquire the root after Chromium has enabled its renderer AX tree;
+        // querying through the original element can retain the shallow snapshot.
+        return _automation.Value.FromHandle(windowHandle).FindAllDescendants();
+    }
+
+    private static bool HasActiveProcessingControl(IEnumerable<AutomationElement> elements) =>
+        elements.Any(element =>
             Safe(() => element.IsEnabled, false)
             && !Safe(() => element.IsOffscreen, true)
             && ElementSemantics.IsProcessingButton(

@@ -102,4 +102,11 @@ public sealed class ElementSemanticsTests
     [InlineData("User-authored draft", false)]
     public void EditorPlaceholder_DistinguishesAccessiblePlaceholderFromDraft(string value, bool expected) =>
         Assert.Equal(expected, ElementSemantics.IsEditorPlaceholder(value));
+
+    [Theory]
+    [InlineData(24, false)]
+    [InlineData(25, true)]
+    [InlineData(180, true)]
+    public void AccessibilityTree_RequiresEnoughDescendantsToClaimAgentIsIdle(int descendantCount, bool expected) =>
+        Assert.Equal(expected, ElementSemantics.HasUsableDesktopAccessibilityTree(descendantCount));
 }
