@@ -206,6 +206,15 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
         // handler re-enters _actionLock.
         if (_claudeWatcher is not null) await _claudeWatcher.CheckNowAsync(cancellationToken).ConfigureAwait(false);
         if (_codexWatcher is not null) await _codexWatcher.CheckNowAsync(cancellationToken).ConfigureAwait(false);
+
+        // A quota pause may exist before any protocol-file change is observed.
+        // Probe the expected agent at startup so the UI reports the real state and
+        // the eventual automatic resume is followed without operator intervention.
+        if (_stateMachine.Current == BridgeState.WaitingForClaudeReport && _claudeWatcher is not null)
+        {
+            await StartCompletionProbeIfAgentActiveAsync(
+                AgentRole.Claude, _claudeWatcher, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     public async Task RetryClaudeDeliveryAsync(CancellationToken cancellationToken)
@@ -689,6 +698,44 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             ? "Deferring Claude protocol file: session limit reached; waiting for automatic reset."
             : "Deferring {Agent} protocol file: the desktop agent is still processing.", role);
         return true;
+    }
+
+    private async Task StartCompletionProbeIfAgentActiveAsync(
+        AgentRole role,
+        IFileWatcher watcher,
+        CancellationToken cancellationToken)
+    {
+        var adapter = _agentAdapterProvider.GetAdapter(role);
+        var processing = await adapter.IsProcessingAsync(cancellationToken).ConfigureAwait(false);
+        var status = processing
+            ? AgentStatus.Busy
+            : await adapter.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+        var waitingForQuota = role == AgentRole.Claude && status == AgentStatus.RateLimited;
+        if (!processing && !waitingForQuota)
+        {
+            return;
+        }
+
+        if (role == AgentRole.Claude)
+        {
+            _lastClaudeAgentStatus = status;
+        }
+        else
+        {
+            _lastCodexAgentStatus = status;
+        }
+        _lastAction = waitingForQuota
+            ? "Claude session limit reached; waiting for automatic reset"
+            : $"{role} is still processing; waiting for completion";
+        PublishStatus();
+
+        ref var activeProbe = ref (role == AgentRole.Claude
+            ? ref _claudeCompletionProbeActive
+            : ref _codexCompletionProbeActive);
+        if (Interlocked.Exchange(ref activeProbe, 1) == 0)
+        {
+            _ = WaitForAgentCompletionAndRecheckAsync(role, adapter, watcher, cancellationToken);
+        }
     }
 
     private async Task WaitForAgentCompletionAndRecheckAsync(

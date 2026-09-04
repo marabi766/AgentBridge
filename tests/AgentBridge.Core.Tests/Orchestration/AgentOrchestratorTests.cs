@@ -219,6 +219,25 @@ public class AgentOrchestratorTests
     }
 
     [Fact]
+    public async Task StartAtClaudeCheckpoint_ReportsExistingQuotaPauseBeforeAnyFileChange()
+    {
+        var harness = new OrchestratorTestHarness();
+        harness.ClaudeAdapter.State.Status = AgentStatus.RateLimited;
+
+        await harness.Orchestrator.StartAtAsync(
+            BridgeStartPoint.WaitForClaudeReport,
+            CancellationToken.None);
+
+        var limited = await harness.Orchestrator.GetStatusAsync(CancellationToken.None);
+        Assert.Equal(BridgeState.WaitingForClaudeReport, limited.CurrentState);
+        Assert.Equal(AgentStatus.RateLimited, limited.ClaudeStatus);
+        Assert.Contains("automatic reset", limited.LastAction);
+        Assert.Empty(harness.CodexAdapter.State.SentMessages);
+
+        harness.ClaudeAdapter.State.Status = AgentStatus.Ready;
+    }
+
+    [Fact]
     public async Task ConcurrentIdenticalFileEvents_OnlyProcessOnce()
     {
         var harness = new OrchestratorTestHarness();
