@@ -10,7 +10,7 @@ public sealed class ElementSemanticsTests
     [InlineData("PR #22, rename session", "title-button", "PR #22")]
     [InlineData("  Agent   Bridge ", "title-button", "Agent Bridge")]
     public void CurrentConversationMarker_AcceptsVerifiedHeaderForms(string name, string css, string identifier) =>
-        Assert.True(ElementSemantics.IsCurrentConversationMarker("Button", name, css, identifier));
+        Assert.True(ElementSemantics.IsCurrentConversationMarker("Button", name, css, false, identifier));
 
     [Theory]
     [InlineData("Agent Bridge", "sidebar-item", "Agent Bridge")]
@@ -18,11 +18,28 @@ public sealed class ElementSemanticsTests
     [InlineData("Another chat", "title-button", "Agent Bridge")]
     [InlineData("Agent Bridge", "title-button", "")]
     public void CurrentConversationMarker_RejectsAmbiguousOrWrongElements(string name, string css, string identifier) =>
-        Assert.False(ElementSemantics.IsCurrentConversationMarker("Button", name, css, identifier));
+        Assert.False(ElementSemantics.IsCurrentConversationMarker("Button", name, css, false, identifier));
 
     [Fact]
     public void CurrentConversationMarker_RejectsNonButtonWithMatchingName() =>
-        Assert.False(ElementSemantics.IsCurrentConversationMarker("Group", "Agent Bridge", "group/cwd", "Agent Bridge"));
+        Assert.False(ElementSemantics.IsCurrentConversationMarker("Group", "Agent Bridge", "group/cwd", false, "Agent Bridge"));
+
+    [Theory]
+    // A Claude project header carries the project name and expands to reveal the
+    // sessions filed under it. Accepting it would let an unrelated open session
+    // pass as the configured conversation.
+    [InlineData("RASTA", "hide-focus-ring group/label", "RASTA")]
+    [InlineData("Agent Bridge", "df-pill hide-focus-ring", "Agent Bridge")]
+    public void CurrentConversationMarker_RejectsExpandableContainerCarryingTheSameName(
+        string name,
+        string css,
+        string identifier) =>
+        Assert.False(ElementSemantics.IsCurrentConversationMarker("Button", name, css, true, identifier));
+
+    [Fact]
+    public void CurrentConversationMarker_StillAcceptsTheRenameSessionTitleClaudeExposes() =>
+        Assert.True(ElementSemantics.IsCurrentConversationMarker(
+            "Button", "RASTA, rename session", "truncate text-body-medium text-primary", false, "RASTA"));
 
     [Theory]
     [InlineData("Button", "RASTA, rename session", "RASTA", true)]

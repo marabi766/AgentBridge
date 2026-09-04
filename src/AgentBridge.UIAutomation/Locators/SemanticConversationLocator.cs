@@ -98,7 +98,9 @@ public sealed class SemanticConversationLocator(ILogger<SemanticConversationLoca
             .Where(IsUsable)
             .Where(element => ElementSemantics.IsCurrentConversationMarker(
                 Safe(() => element.ControlType.ToString()), Safe(() => element.Name),
-                Safe(() => element.ClassName), conversationIdentifier))
+                Safe(() => element.ClassName),
+                Safe(() => element.Patterns.ExpandCollapse.IsSupported, false),
+                conversationIdentifier))
             .ToArray();
 
     private static void WarmUp(AutomationElement root, CancellationToken token)

@@ -7,9 +7,25 @@ public static partial class ElementSemantics
     public static string Normalize(string? value) =>
         Whitespace().Replace(value?.Trim() ?? string.Empty, " ");
 
-    public static bool IsCurrentConversationMarker(string? controlType, string? name, string? className, string identifier)
+    /// <summary>
+    /// Identifies the title control of the conversation that is currently open.
+    ///
+    /// A project or folder header carries the same text as the chats filed under
+    /// it, so a name match alone is not identity: configuring a project name would
+    /// otherwise "verify" whichever unrelated conversation happened to be open and
+    /// deliver the instruction there. Containers are told apart by the fact that
+    /// they expand and collapse, which the real title controls never do — Claude
+    /// exposes its open session as an Invoke "…, rename session" button, and
+    /// ChatGPT exposes its open thread as an Invoke header button.
+    /// </summary>
+    public static bool IsCurrentConversationMarker(
+        string? controlType,
+        string? name,
+        string? className,
+        bool supportsExpandCollapse,
+        string identifier)
     {
-        if (!string.Equals(controlType, "Button", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(controlType, "Button", StringComparison.OrdinalIgnoreCase) || supportsExpandCollapse)
         {
             return false;
         }
