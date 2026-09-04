@@ -176,6 +176,24 @@ public sealed class FileWatcherService : IFileWatcher
         }
     }
 
+    /// <summary>
+    /// Reads the file's own last-write timestamp. A file that cannot be stamped is
+    /// reported as written now: the content was just read as stable, so refusing to
+    /// date it must not silently make it look older than it is.
+    /// </summary>
+    private DateTimeOffset ReadLastWriteTimeUtc()
+    {
+        try
+        {
+            return new DateTimeOffset(File.GetLastWriteTimeUtc(FilePath), TimeSpan.Zero);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not read the last write time of {FilePath}.", FilePath);
+            return DateTimeOffset.UtcNow;
+        }
+    }
+
     private async Task EmitIfNewAsync(string content, string hash, CancellationToken ct, bool bypassDedup = false)
     {
         await _emitGate.WaitAsync(ct).ConfigureAwait(false);
@@ -193,6 +211,7 @@ public sealed class FileWatcherService : IFileWatcher
                 FilePath = FilePath,
                 Content = content,
                 ContentHashSha256 = hash,
+                LastWriteTimeUtc = ReadLastWriteTimeUtc(),
                 DetectedAtUtc = DateTimeOffset.UtcNow,
             });
         }

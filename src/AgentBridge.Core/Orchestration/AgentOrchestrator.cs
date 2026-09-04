@@ -43,6 +43,13 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
     private string? _lastCodexPromptHash;
     private DateTimeOffset? _lastClaudeReportUpdateUtc;
     private DateTimeOffset? _lastCodexPromptUpdateUtc;
+    // When this run last handed an instruction to each agent. A protocol file
+    // written before that moment cannot be the answer to it. Deliberately not
+    // persisted: after a restart no instruction is outstanding, and the hash
+    // comparison alone must stay free to consume a file that was written while
+    // the bridge was down.
+    private DateTimeOffset? _claudeInstructionSentAtUtc;
+    private DateTimeOffset? _codexInstructionSentAtUtc;
     private DateTimeOffset? _startedAtUtc;
     private AgentRole? _lastAgent;
     private string? _lastAction;
@@ -101,6 +108,12 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
                 _logger.LogInformation("Start requested but bridge is already {State}; ignoring.", _stateMachine.Current);
                 return;
             }
+
+            // No instruction from a previous run is outstanding across a start, so
+            // a protocol file written while the bridge was stopped must stay
+            // eligible on its hash alone.
+            _claudeInstructionSentAtUtc = null;
+            _codexInstructionSentAtUtc = null;
 
             _configuration = await _configService.LoadAsync(cancellationToken).ConfigureAwait(false);
 
@@ -569,6 +582,11 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
                 return;
             }
 
+            if (PredatesInstruction(AgentRole.Claude, e))
+            {
+                return;
+            }
+
             var nextIteration = _currentIteration + 1;
             if (nextIteration > _configuration.MaximumIterations)
             {
@@ -632,6 +650,11 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             if (string.Equals(e.ContentHashSha256, _lastCodexPromptHash, StringComparison.Ordinal))
             {
                 _logger.LogDebug("Ignoring duplicate CodexPrompt.md hash {Hash}.", e.ContentHashSha256);
+                return;
+            }
+
+            if (PredatesInstruction(AgentRole.Codex, e))
+            {
                 return;
             }
 
@@ -839,6 +862,7 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             return;
         }
 
+        _codexInstructionSentAtUtc = DateTimeOffset.UtcNow;
         _lastAgent = AgentRole.Codex;
         _lastAction = _configuration.DryRun
             ? $"[Dry Run] Would send instruction to Codex for iteration {_currentIteration}"
@@ -872,6 +896,7 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             return;
         }
 
+        _claudeInstructionSentAtUtc = DateTimeOffset.UtcNow;
         _lastAgent = AgentRole.Claude;
         _lastAction = _configuration.DryRun
             ? $"[Dry Run] Would send instruction to Claude for iteration {_currentIteration}"
@@ -974,6 +999,37 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
     // Helpers
     // ------------------------------------------------------------------
 
+    /// <summary>
+    /// True when the detected file was already on disk before this run handed the
+    /// agent its instruction, and therefore cannot be the answer to it.
+    ///
+    /// Without this, a protocol file that has not been rewritten for hours is
+    /// accepted as a fresh reply the moment its hash first differs from the
+    /// persisted one — which is exactly what happens on a first run, where that
+    /// persisted hash is still null. The bridge then forwards stale work and the
+    /// other agent redoes something it already finished.
+    ///
+    /// The gate only applies while an instruction from this run is outstanding.
+    /// After a restart nothing is outstanding, so a file written while the bridge
+    /// was down is still consumed on its hash alone.
+    /// </summary>
+    private bool PredatesInstruction(AgentRole role, StableFileChangedEventArgs e)
+    {
+        var sentAtUtc = role == AgentRole.Claude
+            ? _claudeInstructionSentAtUtc
+            : _codexInstructionSentAtUtc;
+        if (sentAtUtc is null || e.LastWriteTimeUtc >= sentAtUtc)
+        {
+            return false;
+        }
+
+        _logger.LogInformation(
+            "Ignoring {File}: it was last written {WrittenAt:O}, before the {Agent} instruction was delivered at {SentAt:O}, "
+            + "so it cannot be the reply to it.",
+            e.FilePath, e.LastWriteTimeUtc, role, sentAtUtc);
+        return true;
+    }
+
     private void ApplyRecoveredState(BridgeStateSnapshot snapshot)
     {
         _currentIteration = snapshot.CurrentIteration;
@@ -1008,6 +1064,8 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
         _currentIteration = 0;
         _lastClaudeReportHash = null;
         _lastCodexPromptHash = null;
+        _claudeInstructionSentAtUtc = null;
+        _codexInstructionSentAtUtc = null;
         _lastClaudeReportUpdateUtc = null;
         _lastCodexPromptUpdateUtc = null;
         _lastAgent = null;

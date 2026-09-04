@@ -106,6 +106,50 @@ public class AgentOrchestratorTests
     }
 
     [Fact]
+    public async Task CodexPromptOlderThanTheInstruction_IsNotAcceptedAsItsReply()
+    {
+        var harness = new OrchestratorTestHarness();
+        await harness.StartAsync();
+
+        harness.ClaudeWatcher.RaiseStableChange("r1", "h1");
+        await harness.WaitForStateAsync(BridgeState.WaitingForCodexPrompt);
+
+        // A CodexPrompt.md left over from hours ago. Its hash has never been seen,
+        // so the hash comparison alone would wave it through as Codex's answer and
+        // send Claude off to redo work it already finished.
+        harness.CodexWatcher.RaiseStableChange(
+            "stale prompt", "stale-hash", DateTimeOffset.UtcNow.AddHours(-3));
+        await Task.Delay(200);
+
+        var stillWaiting = await harness.Orchestrator.GetStatusAsync(CancellationToken.None);
+        Assert.Equal(BridgeState.WaitingForCodexPrompt, stillWaiting.CurrentState);
+        Assert.Empty(harness.ClaudeAdapter.State.SentMessages);
+
+        // The prompt Codex actually writes in response is accepted.
+        harness.CodexWatcher.RaiseStableChange("fresh prompt", "fresh-hash");
+        var handed = await harness.WaitForStateAsync(BridgeState.WaitingForClaudeReport);
+        Assert.Single(harness.ClaudeAdapter.State.SentMessages);
+        Assert.Equal("fresh-hash", harness.StateStore.Current?.LastCodexPromptHash);
+        Assert.Equal(1, handed.CurrentIteration);
+    }
+
+    [Fact]
+    public async Task ProtocolFileWrittenWhileTheBridgeWasStopped_IsStillConsumedOnStart()
+    {
+        var harness = new OrchestratorTestHarness();
+        await harness.StartAsync();
+
+        // Nothing has been sent in this run, so age is not evidence of staleness:
+        // this is exactly the report an agent finished while the bridge was down.
+        harness.ClaudeWatcher.RaiseStableChange(
+            "written earlier", "earlier-hash", DateTimeOffset.UtcNow.AddHours(-3));
+
+        var status = await harness.WaitForStateAsync(BridgeState.WaitingForCodexPrompt);
+        Assert.Equal(1, status.CurrentIteration);
+        Assert.Single(harness.CodexAdapter.State.SentMessages);
+    }
+
+    [Fact]
     public async Task FullCycle_ClaudeThenCodexThenClaudeAgain_LoopsBackAndIncrementsIteration()
     {
         var harness = new OrchestratorTestHarness();

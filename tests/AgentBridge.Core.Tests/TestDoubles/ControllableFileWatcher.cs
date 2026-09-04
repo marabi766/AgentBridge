@@ -59,12 +59,14 @@ public sealed class ControllableFileWatcher(string filePath) : IFileWatcher
         return Task.CompletedTask;
     }
 
-    public void RaiseStableChange(string content, string hash) =>
+    public void RaiseStableChange(string content, string hash, DateTimeOffset? lastWriteTimeUtc = null) =>
         StableChangeDetected?.Invoke(this, new StableFileChangedEventArgs
         {
             FilePath = FilePath,
             Content = content,
             ContentHashSha256 = hash,
+            // Freshly written unless a test is deliberately exercising stale content.
+            LastWriteTimeUtc = lastWriteTimeUtc ?? DateTimeOffset.UtcNow,
             DetectedAtUtc = DateTimeOffset.UtcNow,
         });
 
