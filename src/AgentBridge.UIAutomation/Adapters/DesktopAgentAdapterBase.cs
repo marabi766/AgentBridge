@@ -168,7 +168,19 @@ public abstract class DesktopAgentAdapterBase : IAgentAdapter, IDisposable
                 return Task.FromResult(false);
             }
 
-            window.SetForeground();
+            try
+            {
+                window.SetForeground();
+            }
+            catch (Exception ex)
+            {
+                // A locked desktop has no foreground to hand out, and Windows
+                // refuses the request. Delivery drives the window through UI
+                // Automation rather than through the foreground, so this is not a
+                // reason to abandon the handoff.
+                _logger.LogDebug(ex, "Could not bring {Agent} to the foreground; continuing without it.", Name);
+            }
+
             return Task.FromResult(true);
         }
         catch (Exception ex)

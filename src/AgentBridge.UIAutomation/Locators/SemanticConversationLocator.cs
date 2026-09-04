@@ -66,7 +66,7 @@ public sealed class SemanticConversationLocator(ILogger<SemanticConversationLoca
                 return null;
             }
 
-            navigationCandidates[0].Click();
+            OpenConversation(navigationCandidates[0]);
             var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(4);
             while (DateTime.UtcNow < deadline)
             {
@@ -93,6 +93,24 @@ public sealed class SemanticConversationLocator(ILogger<SemanticConversationLoca
             logger.LogWarning(ex, "Conversation discovery failed.");
             return null;
         }
+    }
+
+    /// <summary>
+    /// Opens a sidebar row. Both apps expose these rows with an Invoke pattern,
+    /// which is a call into the target rather than synthetic input: it does not
+    /// move the operator's mouse and, unlike a click, Windows still allows it
+    /// while the desktop is locked. A real click remains the fallback.
+    /// </summary>
+    private static void OpenConversation(AutomationElement candidate)
+    {
+        var invoke = candidate.Patterns.Invoke.PatternOrDefault;
+        if (invoke is not null)
+        {
+            invoke.Invoke();
+            return;
+        }
+
+        candidate.Click();
     }
 
     private static AutomationElement[] FindCurrentMarkers(AutomationElement mainWindow, string conversationIdentifier) =>

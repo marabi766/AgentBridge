@@ -7,8 +7,15 @@ namespace AgentBridge.UIAutomation.Locators;
 public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger) : IMessageSender
 {
     private static readonly TimeSpan ControlAppearanceTimeout = TimeSpan.FromSeconds(3);
-    private static readonly TimeSpan ReceiptTimeout = TimeSpan.FromSeconds(20);
+    // Generous on purpose. Send has already happened by the time this is being
+    // waited on, so giving up early does not undo anything — it only turns a
+    // delivery that worked into a reported failure, which invites a human to
+    // resend and say the same thing twice. A throttled Chromium renderer on a
+    // locked desktop was observed taking well over twenty seconds to publish the
+    // sent message to its accessibility tree.
+    private static readonly TimeSpan ReceiptTimeout = TimeSpan.FromSeconds(90);
     private static readonly TimeSpan FocusTimeout = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan DraftSettleTimeout = TimeSpan.FromSeconds(8);
     private const int AccessDenied = 5;
 
     public Task<bool> SendAsync(
@@ -28,14 +35,19 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
     /// <summary>
     /// Waits for the caret to actually land in the target editor.
     ///
-    /// Bringing an Electron window forward and moving keyboard focus into its
-    /// editor are both asynchronous, and the foreground change can lose a race
-    /// with whatever held focus a moment earlier. A single sample taken 100ms
-    /// after the click is therefore not evidence that focus will never arrive —
-    /// it just means it has not arrived yet. Keep asking until the deadline.
+    /// Focus is asked for two different ways, weakest side effect first.
+    /// UI Automation's own SetFocus is a call into the target's provider rather
+    /// than synthetic input, so it neither moves the operator's mouse nor needs an
+    /// interactive desktop — it is the reason delivery works while Windows is
+    /// locked, where SendInput is refused outright. A real click stays as the
+    /// fallback for Chromium builds that only move the caret on one.
+    ///
+    /// Moving focus is also asynchronous and can lose a race with whatever held it
+    /// a moment earlier, so a single sample proves nothing except that focus has
+    /// not arrived yet. Keep asking until the deadline.
     ///
     /// The guarantee is unchanged: delivery still proceeds only once focus has
-    /// been positively observed on the intended input. Only the patience is new.
+    /// been positively observed on the intended input.
     /// </summary>
     private static async Task<FocusAttempt> TryFocusInputAsync(
         Window window,
@@ -46,6 +58,13 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
         var inputWasDenied = false;
         while (true)
         {
+            Attempt(inputBox.Focus);
+            await Task.Delay(100, cancellationToken).ConfigureAwait(false);
+            if (inputBox.Properties.HasKeyboardFocus.ValueOrDefault)
+            {
+                return new FocusAttempt(true, inputWasDenied);
+            }
+
             try
             {
                 inputBox.Click();
@@ -53,16 +72,15 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
             catch (Win32Exception ex) when (ex.NativeErrorCode == AccessDenied)
             {
                 // Windows refuses synthetic input aimed at a locked desktop or at
-                // a window owned by a higher-privilege process. That condition can
-                // clear on its own, so keep trying, but remember why this failed so
-                // the refusal can name the real cause instead of reporting it as a
-                // focus problem.
+                // a window owned by a higher-privilege process. Remember why, so a
+                // refusal can name the real cause rather than blaming focus, and
+                // keep going: SetFocus above may still carry the delivery.
                 inputWasDenied = true;
             }
             catch (Exception)
             {
                 // Any other click failure is retried the same way: the focus check
-                // below is what decides, never the click itself.
+                // is what decides, never the click itself.
             }
 
             await Task.Delay(100, cancellationToken).ConfigureAwait(false);
@@ -76,18 +94,47 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
                 return new FocusAttempt(false, inputWasDenied);
             }
 
-            try
-            {
-                window.SetForeground();
-            }
-            catch (Exception)
-            {
-                // The window may briefly refuse the foreground change; the next
-                // attempt re-reads focus either way.
-            }
-
+            Attempt(window.SetForeground);
             await Task.Delay(200, cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// Waits for the editor to finish applying the value that was just set.
+    ///
+    /// Setting the value returns before the editor has rendered it, and how long
+    /// that takes is not fixed: a Chromium renderer on a locked or hidden desktop
+    /// is throttled, and a long instruction can still be arriving hundreds of
+    /// milliseconds later. Reading once on a fixed delay turns that into a false
+    /// mismatch — observed live as a 911 character message reading back as 11,
+    /// being cleared as corrupt, and then landing in full anyway.
+    ///
+    /// Returns as soon as the draft matches, so the common case stays fast. The
+    /// caller re-reads and remains the one that decides; this only stops it from
+    /// judging a draft that is still being written.
+    /// </summary>
+    private static async Task SettleDraftAsync(
+        FlaUI.Core.Patterns.IValuePattern valuePattern,
+        string expected,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow + DraftSettleTimeout;
+        while (true)
+        {
+            await Task.Delay(250, cancellationToken).ConfigureAwait(false);
+            var current = ElementSemantics.Normalize(valuePattern.Value.ValueOrDefault);
+            if (string.Equals(current, expected, StringComparison.Ordinal) || DateTime.UtcNow >= deadline)
+            {
+                return;
+            }
+        }
+    }
+
+    /// <summary>Runs a best-effort focus nudge; the focus check is the verdict.</summary>
+    private static void Attempt(Action action)
+    {
+        try { action(); }
+        catch (Exception) { /* A locked desktop refuses some of these outright. */ }
     }
 
     private readonly record struct FocusAttempt(bool Focused, bool InputWasDenied);
@@ -149,7 +196,9 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
                 return false;
             }
 
-            window.SetForeground();
+            // Best effort only: a locked desktop has no foreground to give, and
+            // delivery no longer depends on getting one.
+            Attempt(window.SetForeground);
             await Task.Delay(150, cancellationToken).ConfigureAwait(false);
             if (!resumeExactDraft)
             {
@@ -169,7 +218,7 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
                 // already required and is also what we use to verify/rollback the
                 // draft, so set the complete value atomically instead.
                 valuePattern.SetValue(normalizedMessage);
-                await Task.Delay(250, cancellationToken).ConfigureAwait(false);
+                await SettleDraftAsync(valuePattern, normalizedMessage, cancellationToken).ConfigureAwait(false);
             }
             else
             {
@@ -234,7 +283,11 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
                 await Task.Delay(200, cancellationToken).ConfigureAwait(false);
             }
 
-            logger.LogError("Send was invoked once, but neither a rendered receipt nor active processing could be verified before timeout.");
+            logger.LogError(
+                "Send was invoked once, but neither a rendered receipt nor active processing could be verified "
+                + "within {Timeout}. The message may well have been delivered — check the conversation before "
+                + "resending, or acknowledge the delivery, so the same instruction is not sent twice.",
+                ReceiptTimeout);
             return false;
         }
         catch (OperationCanceledException)
