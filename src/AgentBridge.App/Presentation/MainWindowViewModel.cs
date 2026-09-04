@@ -170,7 +170,10 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public string GeneratedText => Status is null ? "—" : Status.GeneratedAtUtc.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
     public string LastActionText => Status?.LastAction ?? "Nothing has run yet.";
     public string LastErrorText => Status?.LastError ?? "None in this run";
-    public string ClaudeStatusText => Status?.ClaudeStatus.ToString() ?? "Unknown";
+    public string ClaudeStatusText => Status?.ClaudeStatus == AgentStatus.Unknown
+        && Status.CurrentState == BridgeState.WaitingForClaudeReport
+        ? "Busy (verifying)"
+        : Status?.ClaudeStatus.ToString() ?? "Unknown";
     public string CodexStatusText => Status?.CodexStatus.ToString() ?? "Unknown";
     public string GitBranchText => Status?.GitBranch ?? "— not available";
     public string GitTreeText => Status?.GitWorkingTreeSummary ?? "— not available";

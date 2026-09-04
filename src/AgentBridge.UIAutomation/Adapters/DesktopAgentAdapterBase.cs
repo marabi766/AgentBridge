@@ -128,7 +128,17 @@ public abstract class DesktopAgentAdapterBase : IAgentAdapter, IDisposable
             // tree. The first descendant query enables AXMode; a later query
             // exposes the real controls. Never treat that first empty tree as
             // evidence that a running agent is idle.
-            return HasActiveProcessingControl(elements);
+            var configuration = await _configurationService.LoadAsync(cancellationToken).ConfigureAwait(false);
+            var conversationIdentifier = Role == AgentRole.Claude
+                ? configuration.ClaudeConversationIdentifier
+                : configuration.CodexConversationIdentifier;
+
+            // A desktop app can have another task streaming in the background.
+            // It must never make the configured bridge conversation appear busy.
+            // If the current conversation cannot be proven from the live tree,
+            // GetStatusAsync will return Unknown and the orchestrator will wait.
+            return HasConfiguredConversationMarker(elements, conversationIdentifier)
+                && HasActiveProcessingControl(elements);
         }
         catch (Exception ex)
         {
@@ -244,8 +254,25 @@ public abstract class DesktopAgentAdapterBase : IAgentAdapter, IDisposable
                 _logger.LogWarning(
                     "{Agent} accessibility tree remained shallow after warm-up ({DescendantCount} descendants); status is indeterminate.",
                     Name, descendants.Length);
-                return AgentStatus.Unreachable;
+                // The desktop app is present and its window is responsive; only
+                // the Chromium accessibility renderer is not ready to prove its
+                // activity. Report Unknown rather than Unreachable so operators
+                // see the distinction while orchestration still fails closed.
+                return AgentStatus.Unknown;
             }
+
+            var configuration = await _configurationService.LoadAsync(cancellationToken).ConfigureAwait(false);
+            var conversationIdentifier = Role == AgentRole.Claude
+                ? configuration.ClaudeConversationIdentifier
+                : configuration.CodexConversationIdentifier;
+            if (!HasConfiguredConversationMarker(descendants, conversationIdentifier))
+            {
+                _logger.LogWarning(
+                    "The configured {Agent} conversation '{Conversation}' could not be verified in the current window; status is indeterminate.",
+                    Name, conversationIdentifier);
+                return AgentStatus.Unknown;
+            }
+
             var processing = descendants.Any(element =>
                 Safe(() => element.IsEnabled, false)
                 && !Safe(() => element.IsOffscreen, true)
@@ -336,11 +363,36 @@ public abstract class DesktopAgentAdapterBase : IAgentAdapter, IDisposable
             return initial;
         }
 
-        await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
-        // Reacquire the root after Chromium has enabled its renderer AX tree;
-        // querying through the original element can retain the shallow snapshot.
-        return _automation.Value.FromHandle(windowHandle).FindAllDescendants();
+        // Electron enables the renderer accessibility tree asynchronously. A
+        // second sample after one second is often enough, but Claude sometimes
+        // needs another render turn while tools are streaming.
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
+            // Reacquire the root after Chromium has enabled its renderer AX tree;
+            // querying through the original element can retain the shallow snapshot.
+            var warmed = _automation.Value.FromHandle(windowHandle).FindAllDescendants();
+            if (ElementSemantics.HasUsableDesktopAccessibilityTree(warmed.Length) || attempt == 1)
+            {
+                return warmed;
+            }
+        }
+
+        return initial;
     }
+
+    private static bool HasConfiguredConversationMarker(
+        IEnumerable<AutomationElement> elements,
+        string? conversationIdentifier) =>
+        !string.IsNullOrWhiteSpace(conversationIdentifier)
+        && elements.Any(element =>
+            Safe(() => element.IsEnabled, false)
+            && !Safe(() => element.IsOffscreen, true)
+            && ElementSemantics.IsCurrentConversationMarker(
+                Safe(() => element.ControlType.ToString()),
+                Safe(() => element.Name),
+                Safe(() => element.ClassName),
+                conversationIdentifier));
 
     private static bool HasActiveProcessingControl(IEnumerable<AutomationElement> elements) =>
         elements.Any(element =>
