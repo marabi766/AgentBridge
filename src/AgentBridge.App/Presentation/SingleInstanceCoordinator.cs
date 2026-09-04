@@ -2,8 +2,11 @@ namespace AgentBridge.App;
 
 public sealed class SingleInstanceCoordinator : IDisposable
 {
-    private const string MutexName = "Local\\AgentBridge.Desktop.Singleton";
-    private const string ActivationEventName = "Local\\AgentBridge.Desktop.Activate";
+    // V2 intentionally leaves behind the legacy synchronization objects. Older
+    // builds could strand a secondary process that kept the V1 object alive and
+    // prevented every later launch from becoming primary.
+    private const string MutexName = "Local\\AgentBridge.Desktop.Singleton.V2";
+    private const string ActivationEventName = "Local\\AgentBridge.Desktop.Activate.V2";
     private readonly Mutex _mutex;
     private readonly EventWaitHandle _activationEvent;
     private readonly CancellationTokenSource _shutdown = new();
