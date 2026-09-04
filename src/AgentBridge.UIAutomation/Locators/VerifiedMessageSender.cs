@@ -15,7 +15,12 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
     // sent message to its accessibility tree.
     private static readonly TimeSpan ReceiptTimeout = TimeSpan.FromSeconds(90);
     private static readonly TimeSpan FocusTimeout = TimeSpan.FromSeconds(3);
-    private static readonly TimeSpan DraftSettleTimeout = TimeSpan.FromSeconds(8);
+    // How long the editor may take to report back the value that was set. On a
+    // disconnected desktop session the accessibility tree lags far behind the
+    // write: a 911 character instruction was still reading back as 11 characters
+    // eight seconds in, and was present in full once the tree caught up. Waiting
+    // costs nothing but time; giving up early discards a draft that did land.
+    private static readonly TimeSpan DraftSettleTimeout = TimeSpan.FromSeconds(60);
     private const int AccessDenied = 5;
 
     public Task<bool> SendAsync(
