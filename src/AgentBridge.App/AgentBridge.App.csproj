@@ -10,6 +10,7 @@
     <LangVersion>latest</LangVersion>
     <RootNamespace>AgentBridge.App</RootNamespace>
     <AssemblyName>AgentBridge.App</AssemblyName>
+    <ApplicationIcon>Assets\AgentBridge.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
