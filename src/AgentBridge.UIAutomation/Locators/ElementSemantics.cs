@@ -75,6 +75,12 @@ public static partial class ElementSemantics
         string.Equals(controlType, "Button", StringComparison.OrdinalIgnoreCase)
         && string.Equals(Normalize(name), "Stop", StringComparison.OrdinalIgnoreCase);
 
+    public static bool IsQuotaLimitMarker(string? name) =>
+        string.Equals(Normalize(name), "Session limit reached", StringComparison.OrdinalIgnoreCase);
+
+    public static bool IsQuotaResetMarker(string? name) =>
+        Normalize(name).StartsWith("Resets in ", StringComparison.OrdinalIgnoreCase);
+
     public static bool IsExactRenderedReceipt(string? renderedName, string message)
     {
         var rendered = Normalize(renderedName);

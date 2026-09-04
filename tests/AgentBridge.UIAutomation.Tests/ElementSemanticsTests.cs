@@ -71,6 +71,20 @@ public sealed class ElementSemanticsTests
         Assert.Equal(expected, ElementSemantics.IsProcessingButton(type, name));
 
     [Theory]
+    [InlineData("Session limit reached", true)]
+    [InlineData(" session   limit reached ", true)]
+    [InlineData("Claude finished the response", false)]
+    public void QuotaLimitMarker_RecognizesCurrentLimitStatus(string name, bool expected) =>
+        Assert.Equal(expected, ElementSemantics.IsQuotaLimitMarker(name));
+
+    [Theory]
+    [InlineData("Resets in 22 min", true)]
+    [InlineData("Resets in 3 hr 52 min", true)]
+    [InlineData("Usage: 100%", false)]
+    public void QuotaResetMarker_RecognizesCountdown(string name, bool expected) =>
+        Assert.Equal(expected, ElementSemantics.IsQuotaResetMarker(name));
+
+    [Theory]
     [InlineData("Complete the task", "Complete the task", true)]
     [InlineData("You said: Complete the task", "Complete the task", true)]
     [InlineData("You said: prefixComplete the task", "Complete the task", false)]

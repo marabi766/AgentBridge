@@ -653,10 +653,29 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
         CancellationToken cancellationToken)
     {
         var adapter = _agentAdapterProvider.GetAdapter(role);
-        if (!await adapter.IsProcessingAsync(cancellationToken).ConfigureAwait(false))
+        var isProcessing = await adapter.IsProcessingAsync(cancellationToken).ConfigureAwait(false);
+        var status = isProcessing
+            ? AgentStatus.Busy
+            : await adapter.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+        var isWaitingForQuota = role == AgentRole.Claude && status == AgentStatus.RateLimited;
+        if (!isProcessing && !isWaitingForQuota)
         {
             return false;
         }
+
+        if (role == AgentRole.Claude)
+        {
+            _lastClaudeAgentStatus = status;
+        }
+        else
+        {
+            _lastCodexAgentStatus = status;
+        }
+
+        _lastAction = isWaitingForQuota
+            ? "Claude session limit reached; waiting for automatic reset"
+            : $"{role} is still processing; protocol file deferred";
+        PublishStatus();
 
         ref var activeProbe = ref (role == AgentRole.Claude
             ? ref _claudeCompletionProbeActive
@@ -666,9 +685,9 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             _ = WaitForAgentCompletionAndRecheckAsync(role, adapter, watcher, cancellationToken);
         }
 
-        _logger.LogInformation(
-            "Deferring {Agent} protocol file: the desktop agent is still processing.",
-            role);
+        _logger.LogInformation(isWaitingForQuota
+            ? "Deferring Claude protocol file: session limit reached; waiting for automatic reset."
+            : "Deferring {Agent} protocol file: the desktop agent is still processing.", role);
         return true;
     }
 
@@ -680,8 +699,30 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
     {
         try
         {
-            while (await adapter.IsProcessingAsync(cancellationToken).ConfigureAwait(false))
+            while (true)
             {
+                var processing = await adapter.IsProcessingAsync(cancellationToken).ConfigureAwait(false);
+                var status = processing
+                    ? AgentStatus.Busy
+                    : await adapter.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+                var waitingForQuota = role == AgentRole.Claude && status == AgentStatus.RateLimited;
+                if (!processing && !waitingForQuota)
+                {
+                    break;
+                }
+
+                if (role == AgentRole.Claude)
+                {
+                    _lastClaudeAgentStatus = status;
+                }
+                else
+                {
+                    _lastCodexAgentStatus = status;
+                }
+                _lastAction = waitingForQuota
+                    ? "Claude session limit reached; waiting for automatic reset"
+                    : $"{role} resumed and is processing";
+                PublishStatus();
                 await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
             }
 

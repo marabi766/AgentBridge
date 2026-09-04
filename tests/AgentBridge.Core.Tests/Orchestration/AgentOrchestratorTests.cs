@@ -187,6 +187,38 @@ public class AgentOrchestratorTests
     }
 
     [Fact]
+    public async Task ClaudeReportChange_WaitsThroughQuotaResetAndAutomaticResume()
+    {
+        var harness = new OrchestratorTestHarness();
+        await harness.StartAsync();
+        harness.ClaudeAdapter.State.Status = AgentStatus.RateLimited;
+        harness.ClaudeWatcher.ArrangeCheckNowResult("completed after reset", "post-reset-hash");
+
+        harness.ClaudeWatcher.RaiseStableChange("partial report", "partial-hash");
+        await Task.Delay(150);
+
+        var limited = await harness.Orchestrator.GetStatusAsync(CancellationToken.None);
+        Assert.Equal(BridgeState.WaitingForClaudeReport, limited.CurrentState);
+        Assert.Equal(AgentStatus.RateLimited, limited.ClaudeStatus);
+        Assert.Contains("automatic reset", limited.LastAction);
+        Assert.Empty(harness.CodexAdapter.State.SentMessages);
+
+        harness.ClaudeAdapter.State.Status = AgentStatus.Ready;
+        harness.ClaudeAdapter.State.IsProcessing = true;
+        await Task.Delay(1100);
+        Assert.Empty(harness.CodexAdapter.State.SentMessages);
+
+        harness.ClaudeAdapter.State.IsProcessing = false;
+        var completed = await harness.WaitForStateAsync(
+            BridgeState.WaitingForCodexPrompt,
+            TimeSpan.FromSeconds(3));
+
+        Assert.Equal(1, completed.CurrentIteration);
+        Assert.Single(harness.CodexAdapter.State.SentMessages);
+        Assert.Equal("post-reset-hash", harness.StateStore.Current?.LastClaudeReportHash);
+    }
+
+    [Fact]
     public async Task ConcurrentIdenticalFileEvents_OnlyProcessOnce()
     {
         var harness = new OrchestratorTestHarness();

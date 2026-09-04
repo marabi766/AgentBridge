@@ -11,6 +11,7 @@ public enum AgentStatus
     Running,
     Ready,
     Busy,
+    RateLimited,
     Unreachable,
     Error,
 }

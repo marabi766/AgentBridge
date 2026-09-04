@@ -223,12 +223,55 @@ public abstract class DesktopAgentAdapterBase : IAgentAdapter, IDisposable
 
     public async Task<AgentStatus> GetStatusAsync(CancellationToken cancellationToken)
     {
-        if (!await IsApplicationRunningAsync(cancellationToken).ConfigureAwait(false))
+        cancellationToken.ThrowIfCancellationRequested();
+        using var processes = new ProcessListDisposer(GetCandidateProcesses(ProcessName));
+        var process = processes.Processes.FirstOrDefault();
+        if (process is null)
         {
             return AgentStatus.NotRunning;
         }
 
-        return await IsReadyAsync(cancellationToken).ConfigureAwait(false) ? AgentStatus.Ready : AgentStatus.Unreachable;
+        try
+        {
+            var window = _automation.Value.FromHandle(process.MainWindowHandle);
+            if (!window.Properties.IsEnabled.ValueOrDefault || window.Properties.IsOffscreen.ValueOrDefault)
+            {
+                return AgentStatus.Unreachable;
+            }
+
+            var descendants = window.FindAllDescendants();
+            var processing = descendants.Any(element =>
+                Safe(() => element.IsEnabled, false)
+                && !Safe(() => element.IsOffscreen, true)
+                && ElementSemantics.IsProcessingButton(
+                    Safe(() => element.ControlType.ToString()), Safe(() => element.Name)));
+            if (processing)
+            {
+                return AgentStatus.Busy;
+            }
+
+            // Claude exposes these three signals together while it is waiting for
+            // an automatic session-limit reset. Requiring the combination avoids
+            // mistaking an older rendered chat message for the current status.
+            var quotaLimited = descendants.Any(element =>
+                    !Safe(() => element.IsOffscreen, true)
+                    && ElementSemantics.IsQuotaLimitMarker(Safe(() => element.Name)))
+                && descendants.Any(element =>
+                    !Safe(() => element.IsOffscreen, true)
+                    && ElementSemantics.IsQuotaResetMarker(Safe(() => element.Name)))
+                && descendants.Any(element =>
+                    !Safe(() => element.IsOffscreen, true)
+                    && ElementSemantics.IsSendButton(
+                        Safe(() => element.ControlType.ToString()), Safe(() => element.Name))
+                    && !Safe(() => element.IsEnabled, true));
+
+            return quotaLimited ? AgentStatus.RateLimited : AgentStatus.Ready;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to query status for {Agent}.", Name);
+            return AgentStatus.Unreachable;
+        }
     }
 
     public Task<string> GetDiagnosticsAsync(CancellationToken cancellationToken)
