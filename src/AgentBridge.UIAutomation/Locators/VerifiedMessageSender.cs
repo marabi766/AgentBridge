@@ -7,6 +7,7 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
 {
     private static readonly TimeSpan ControlAppearanceTimeout = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan ReceiptTimeout = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan FocusTimeout = TimeSpan.FromSeconds(3);
 
     public Task<bool> SendAsync(
         AutomationElement conversation,
@@ -21,6 +22,52 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
         string message,
         CancellationToken cancellationToken) =>
         SendCoreAsync(conversation, inputBox, message, replaceExistingDraft: true, cancellationToken);
+
+    /// <summary>
+    /// Waits for the caret to actually land in the target editor.
+    ///
+    /// Bringing an Electron window forward and moving keyboard focus into its
+    /// editor are both asynchronous, and the foreground change can lose a race
+    /// with whatever held focus a moment earlier. A single sample taken 100ms
+    /// after the click is therefore not evidence that focus will never arrive —
+    /// it just means it has not arrived yet. Keep asking until the deadline.
+    ///
+    /// The guarantee is unchanged: delivery still proceeds only once focus has
+    /// been positively observed on the intended input. Only the patience is new.
+    /// </summary>
+    private static async Task<bool> TryFocusInputAsync(
+        Window window,
+        AutomationElement inputBox,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow + FocusTimeout;
+        while (true)
+        {
+            inputBox.Click();
+            await Task.Delay(100, cancellationToken).ConfigureAwait(false);
+            if (inputBox.Properties.HasKeyboardFocus.ValueOrDefault)
+            {
+                return true;
+            }
+
+            if (DateTime.UtcNow >= deadline)
+            {
+                return false;
+            }
+
+            try
+            {
+                window.SetForeground();
+            }
+            catch (Exception)
+            {
+                // The window may briefly refuse the foreground change; the next
+                // attempt re-reads focus either way.
+            }
+
+            await Task.Delay(200, cancellationToken).ConfigureAwait(false);
+        }
+    }
 
     private async Task<bool> SendCoreAsync(
         AutomationElement conversation,
@@ -83,9 +130,7 @@ public sealed class VerifiedMessageSender(ILogger<VerifiedMessageSender> logger)
             await Task.Delay(150, cancellationToken).ConfigureAwait(false);
             if (!resumeExactDraft)
             {
-                inputBox.Click();
-                await Task.Delay(100, cancellationToken).ConfigureAwait(false);
-                if (!inputBox.Properties.HasKeyboardFocus.ValueOrDefault)
+                if (!await TryFocusInputAsync(window, inputBox, cancellationToken).ConfigureAwait(false))
                 {
                     logger.LogWarning("Message delivery refused: keyboard focus could not be verified on the target input.");
                     return false;
