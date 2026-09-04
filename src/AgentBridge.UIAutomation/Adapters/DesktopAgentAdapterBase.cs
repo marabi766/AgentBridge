@@ -26,6 +26,12 @@ public abstract class DesktopAgentAdapterBase : IAgentAdapter, IDisposable
     private AutomationElement? _conversation;
     private AutomationElement? _inputBox;
     private DateTimeOffset _lastAccessibilityActivationUtc = DateTimeOffset.MinValue;
+    // How long a window may stay byte-identical while still showing a Stop
+    // control before the bridge stops believing it. Long enough that a slow tool
+    // call which renders nothing is not mistaken for a frozen frame.
+    private static readonly TimeSpan StaleUiTimeout = TimeSpan.FromMinutes(10);
+    private string? _lastActivityFingerprint;
+    private DateTimeOffset _activityFingerprintSinceUtc = DateTimeOffset.UtcNow;
     private int _disposed;
 
     protected DesktopAgentAdapterBase(
@@ -138,8 +144,9 @@ public abstract class DesktopAgentAdapterBase : IAgentAdapter, IDisposable
             // It must never make the configured bridge conversation appear busy.
             // If the current conversation cannot be proven from the live tree,
             // GetStatusAsync will return Unknown and the orchestrator will wait.
-            return HasConfiguredConversationMarker(elements, conversationIdentifier)
+            var processing = HasConfiguredConversationMarker(elements, conversationIdentifier)
                 && HasActiveProcessingControl(elements);
+            return processing && !HasStoppedChanging(elements);
         }
         catch (Exception ex)
         {
@@ -293,8 +300,12 @@ public abstract class DesktopAgentAdapterBase : IAgentAdapter, IDisposable
 
             // Only the conversation currently on screen can be proven to be
             // streaming. A background conversation never reports Busy here; the
-            // orchestrator rechecks once it has been brought to the front.
-            if (isCurrentConversation && HasActiveProcessingControl(descendants))
+            // orchestrator rechecks once it has been brought to the front. A Stop
+            // control on a window that has stopped changing is a frozen frame, not
+            // evidence of work, so it does not hold the agent in Busy either.
+            if (isCurrentConversation
+                && HasActiveProcessingControl(descendants)
+                && !HasStoppedChanging(descendants))
             {
                 return AgentStatus.Busy;
             }
@@ -469,6 +480,63 @@ public abstract class DesktopAgentAdapterBase : IAgentAdapter, IDisposable
                 Safe(() => element.ClassName),
                 Safe(() => element.Patterns.ExpandCollapse.IsSupported, false),
                 conversationIdentifier)) == 1;
+
+    /// <summary>
+    /// Decides whether a window that still shows a Stop control has simply frozen
+    /// with it on screen.
+    ///
+    /// A disconnected desktop session was observed leaving both agents' windows
+    /// rendered exactly as they were when the operator left: the agent finished
+    /// its turn and wrote its protocol file, but Chromium never repainted, so the
+    /// Stop button stayed and the bridge waited on it — three hours in one case,
+    /// until signing back in repainted the window. Trusting that control alone
+    /// therefore means an unattended run can stall forever on a picture of work.
+    ///
+    /// Real work moves something: streamed text, a tool card, a token counter. A
+    /// tree that is byte-identical for minutes on end is a still image. This is
+    /// only ever consulted while the orchestrator is already deferring a settled
+    /// protocol file, so the agent's output is complete before staleness can
+    /// release the wait.
+    /// </summary>
+    private bool HasStoppedChanging(IReadOnlyCollection<AutomationElement> elements)
+    {
+        var fingerprint = Fingerprint(elements);
+        var now = DateTimeOffset.UtcNow;
+        if (!string.Equals(fingerprint, _lastActivityFingerprint, StringComparison.Ordinal))
+        {
+            _lastActivityFingerprint = fingerprint;
+            _activityFingerprintSinceUtc = now;
+            return false;
+        }
+
+        if (now - _activityFingerprintSinceUtc < StaleUiTimeout)
+        {
+            return false;
+        }
+
+        _logger.LogWarning(
+            "{Agent} still shows a Stop control, but its window has not changed in {Minutes} minutes. "
+            + "Treating it as idle: a disconnected desktop leaves the last frame on screen, and waiting "
+            + "on it would stall the run indefinitely.",
+            Name, (int)StaleUiTimeout.TotalMinutes);
+        return true;
+    }
+
+    /// <summary>
+    /// A cheap summary of what the window is showing. Names carry the streamed
+    /// text, so anything the agent renders changes this.
+    /// </summary>
+    private static string Fingerprint(IReadOnlyCollection<AutomationElement> elements)
+    {
+        var hash = new HashCode();
+        hash.Add(elements.Count);
+        foreach (var element in elements)
+        {
+            hash.Add(Safe(() => element.Name, string.Empty), StringComparer.Ordinal);
+        }
+
+        return hash.ToHashCode().ToString("X8");
+    }
 
     private static bool HasActiveProcessingControl(IEnumerable<AutomationElement> elements) =>
         elements.Any(element =>
