@@ -61,3 +61,6 @@ desktop.ini
 ## Editor
 *.swp
 *~
+
+## WiX build leftovers (the .wxs source is committed; its output is not)
+*.wixpdb

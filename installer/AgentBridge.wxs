@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Installer for Agent Bridge.
+
+  The payload is a self-contained publish, so the machine needs no .NET
+  installation of its own — the bridge has to run on servers that are
+  administered remotely and left alone, where a missing runtime would be
+  discovered only when someone tried to start it.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+      Name="Agent Bridge"
+      Manufacturer="Agent Bridge"
+      Version="$(var.BuildVersion)"
+      UpgradeCode="D8C5C043-EAB9-410F-B259-AA935245F79E"
+      Scope="perMachine"
+      Compressed="yes">
+
+    <!-- Installing a newer build replaces the old one in place, so the
+         operator never ends up with two copies on the same server. -->
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Agent Bridge is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="AppIcon" SourceFile="$(var.PublishDir)\AgentBridge.App.exe" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Agent Bridge" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="AppMenuFolder" Name="Agent Bridge" />
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="Agent Bridge" Level="1">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(var.PublishDir)\**" />
+    </ComponentGroup>
+
+    <Component Id="StartMenuShortcut" Directory="AppMenuFolder" Guid="*">
+      <Shortcut
+          Id="AppShortcut"
+          Name="Agent Bridge"
+          Description="Supervised Claude and Codex handoff bridge"
+          Target="[INSTALLFOLDER]AgentBridge.App.exe"
+          WorkingDirectory="INSTALLFOLDER" />
+      <RemoveFolder Id="RemoveAppMenuFolder" Directory="AppMenuFolder" On="uninstall" />
+      <RegistryValue Root="HKCU" Key="Software\Agent Bridge" Name="installed" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+  </Package>
+</Wix>
