@@ -129,6 +129,26 @@ public static partial class ElementSemantics
     public static bool IsQuotaLimitMarker(string? name) =>
         string.Equals(Normalize(name), "Session limit reached", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// ChatGPT reports an exhausted Codex allowance as one banner that names what
+    /// ran out and when it comes back — "You're out of Codex and Work usage …
+    /// or wait for usage to reset on Oct 4, 5:02 PM". The exact wording varies
+    /// with plan and product name, so the three parts are matched rather than the
+    /// sentence; requiring all of them in a single element keeps an ordinary
+    /// message that happens to mention usage from being read as a limit.
+    ///
+    /// Worth recognising because the app keeps accepting messages in this state:
+    /// the composer clears, nothing is posted, and without this the bridge
+    /// reports a delivery failure instead of the wait it actually is.
+    /// </summary>
+    public static bool IsUsageExhaustedMarker(string? name)
+    {
+        var text = Normalize(name);
+        return text.Contains("out of", StringComparison.OrdinalIgnoreCase)
+            && text.Contains("usage", StringComparison.OrdinalIgnoreCase)
+            && text.Contains("reset", StringComparison.OrdinalIgnoreCase);
+    }
+
     public static bool IsQuotaResetMarker(string? name) =>
         Normalize(name).StartsWith("Resets in ", StringComparison.OrdinalIgnoreCase);
 

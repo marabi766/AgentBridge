@@ -310,6 +310,17 @@ public abstract class DesktopAgentAdapterBase : IAgentAdapter, IDisposable
                 return AgentStatus.Busy;
             }
 
+            // ChatGPT states an exhausted allowance in a single banner, and keeps
+            // accepting messages while it is showing: the composer clears and
+            // nothing is posted. Without this the bridge reads that as a delivery
+            // failure and stops, when the truthful answer is that it has to wait.
+            if (Role == AgentRole.Codex && descendants.Any(element =>
+                    !Safe(() => element.IsOffscreen, true)
+                    && ElementSemantics.IsUsageExhaustedMarker(Safe(() => element.Name))))
+            {
+                return AgentStatus.RateLimited;
+            }
+
             // Claude exposes these three signals together while it is waiting for
             // an automatic session-limit reset. Requiring the combination avoids
             // mistaking an older rendered chat message for the current status.

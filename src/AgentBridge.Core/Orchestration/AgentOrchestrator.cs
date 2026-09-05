@@ -702,7 +702,7 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
         var status = isProcessing
             ? AgentStatus.Busy
             : await adapter.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-        var isWaitingForQuota = role == AgentRole.Claude && status == AgentStatus.RateLimited;
+        var isWaitingForQuota = status == AgentStatus.RateLimited;
         var statusIsIndeterminate = status is not AgentStatus.Ready;
         if (!isProcessing && !isWaitingForQuota && !statusIsIndeterminate)
         {
@@ -719,7 +719,7 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
         }
 
         _lastAction = isWaitingForQuota
-            ? "Claude session limit reached; waiting for automatic reset"
+            ? $"{role} has no allowance left; waiting for the automatic reset"
             : !isProcessing
                 ? $"{role} status could not be verified; protocol file deferred"
             : $"{role} is still processing; protocol file deferred";
@@ -734,7 +734,7 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
         }
 
         _logger.LogInformation(isWaitingForQuota
-            ? "Deferring Claude protocol file: session limit reached; waiting for automatic reset."
+            ? "Deferring {Agent} protocol file: no allowance left; waiting for the automatic reset."
             : !isProcessing
                 ? "Deferring {Agent} protocol file: the desktop agent status is {Status}, so idle cannot be verified."
                 : "Deferring {Agent} protocol file: the desktop agent is still processing.", role, status);
@@ -751,7 +751,7 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
         var status = processing
             ? AgentStatus.Busy
             : await adapter.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-        var waitingForQuota = role == AgentRole.Claude && status == AgentStatus.RateLimited;
+        var waitingForQuota = status == AgentStatus.RateLimited;
         var statusIsIndeterminate = status is not AgentStatus.Ready;
         if (!processing && !waitingForQuota && !statusIsIndeterminate)
         {
@@ -767,7 +767,7 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             _lastCodexAgentStatus = status;
         }
         _lastAction = waitingForQuota
-            ? "Claude session limit reached; waiting for automatic reset"
+            ? $"{role} has no allowance left; waiting for the automatic reset"
             : $"{role} is still processing; waiting for completion";
         PublishStatus();
 
@@ -794,7 +794,7 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
                 var status = processing
                     ? AgentStatus.Busy
                     : await adapter.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-                var waitingForQuota = role == AgentRole.Claude && status == AgentStatus.RateLimited;
+                var waitingForQuota = status == AgentStatus.RateLimited;
                 var statusIsIndeterminate = status is not AgentStatus.Ready;
                 if (!processing && !waitingForQuota && !statusIsIndeterminate)
                 {
@@ -810,7 +810,7 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
                     _lastCodexAgentStatus = status;
                 }
                 _lastAction = waitingForQuota
-                    ? "Claude session limit reached; waiting for automatic reset"
+                    ? $"{role} has no allowance left; waiting for the automatic reset"
                     : !processing
                         ? $"{role} status could not be verified; waiting before file recheck"
                     : $"{role} resumed and is processing";

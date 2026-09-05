@@ -143,6 +143,17 @@ public sealed class ElementSemanticsTests
         Assert.Equal(expected, ElementSemantics.IsEditorPlaceholder(value));
 
     [Theory]
+    // The banner ChatGPT shows once the Codex allowance is spent.
+    [InlineData("You’re out of Codex and Work usage Upgrade for more now, or wait for usage to reset on Oct 4, 5:02 PM", true)]
+    [InlineData("You are out of usage. It will reset tomorrow.", true)]
+    // An ordinary message that merely mentions one of the words is not a limit.
+    [InlineData("I ran out of ideas for the reset script", false)]
+    [InlineData("Usage of the reset endpoint is documented", false)]
+    [InlineData("", false)]
+    public void UsageExhaustedMarker_NeedsAllThreeParts(string name, bool expected) =>
+        Assert.Equal(expected, ElementSemantics.IsUsageExhaustedMarker(name));
+
+    [Theory]
     [InlineData("Document", "RootWebArea", true)]
     [InlineData("document", "RootWebArea", true)]
     [InlineData("Pane", "RootWebArea", false)]
