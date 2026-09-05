@@ -35,6 +35,27 @@ public sealed record BridgeConfiguration
 
     public bool AutoLaunchChatGpt { get; init; }
 
+    // --- Codex CLI ---
+    // Drives Codex as a command line process instead of through the ChatGPT
+    // desktop window. Nothing in a pipe can be stale, frozen, half rendered or
+    // occupied by a leftover draft, which is where every delivery fault in the
+    // desktop path has come from. Off by default: the CLI has to be installed
+    // and signed in first.
+    public bool UseCodexCli { get; init; }
+
+    public string CodexCliExecutable { get; init; } = "codex";
+
+    /// <summary>
+    /// Arguments for one non-interactive run, space separated. The default asks
+    /// Codex to read the instruction from stdin ("-"), which is what makes a long
+    /// multi-line prompt safe to pass — no quoting or escaping is involved — and
+    /// grants the workspace write access it needs to update the protocol file.
+    /// </summary>
+    public string CodexCliArguments { get; init; } = "exec --sandbox workspace-write --skip-git-repo-check -";
+
+    /// <summary>How long one Codex run may take before it is abandoned.</summary>
+    public int CodexCliTimeoutSeconds { get; init; } = 1800;
+
     // --- Message templates ---
     public string ClaudeInstructionTemplate { get; init; } = DefaultTemplates.ClaudeInstruction;
 

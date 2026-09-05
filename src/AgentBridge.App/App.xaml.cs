@@ -2,6 +2,7 @@ using AgentBridge.Abstractions.Interfaces;
 using AgentBridge.Core.Orchestration;
 using AgentBridge.Core.Retry;
 using AgentBridge.Core.Templates;
+using AgentBridge.Infrastructure.Agents;
 using AgentBridge.Infrastructure.FileWatching;
 using AgentBridge.Infrastructure.Git;
 using AgentBridge.Infrastructure.Logging;
@@ -109,14 +110,26 @@ public partial class App : System.Windows.Application
             sp.GetRequiredService<IInputLocator>(),
             sp.GetRequiredService<IMessageSender>(),
             sp.GetRequiredService<ILogger<ClaudeDesktopAdapter>>()));
-        builder.Services.AddSingleton<IAgentAdapter>(sp => new ChatGptDesktopAdapter(
-            bootstrapConfig.ChatGptProcessName,
-            bootstrapConfig.ChatGptExecutablePath,
-            sp.GetRequiredService<IConfigurationService>(),
-            sp.GetRequiredService<IConversationLocator>(),
-            sp.GetRequiredService<IInputLocator>(),
-            sp.GetRequiredService<IMessageSender>(),
-            sp.GetRequiredService<ILogger<ChatGptDesktopAdapter>>()));
+        // Codex is reachable two ways and only one of them is registered, because
+        // the provider resolves an adapter by role and two claimants for the same
+        // role would make which one runs an accident of ordering.
+        if (bootstrapConfig.UseCodexCli)
+        {
+            builder.Services.AddSingleton<IAgentAdapter>(sp => new CodexCliAdapter(
+                sp.GetRequiredService<IConfigurationService>(),
+                sp.GetRequiredService<ILogger<CodexCliAdapter>>()));
+        }
+        else
+        {
+            builder.Services.AddSingleton<IAgentAdapter>(sp => new ChatGptDesktopAdapter(
+                bootstrapConfig.ChatGptProcessName,
+                bootstrapConfig.ChatGptExecutablePath,
+                sp.GetRequiredService<IConfigurationService>(),
+                sp.GetRequiredService<IConversationLocator>(),
+                sp.GetRequiredService<IInputLocator>(),
+                sp.GetRequiredService<IMessageSender>(),
+                sp.GetRequiredService<ILogger<ChatGptDesktopAdapter>>()));
+        }
         builder.Services.AddSingleton<IAgentAdapterProvider, DefaultAgentAdapterProvider>();
         builder.Services.AddSingleton<IAgentDiagnosticsService, AgentDiagnosticsService>();
 
