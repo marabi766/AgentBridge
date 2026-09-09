@@ -438,14 +438,28 @@ public abstract class CommandLineAgentAdapter : IAgentAdapter, IReportsRunOutcom
                 return;
             }
 
+            // Detection reads the raw line: the refusal is a JSON field, and the
+            // rendering below deliberately drops it as noise.
             adapter.NoteQuotaRefusal(line);
+
+            // Rendered before the budget is spent, so the two thousand lines a run
+            // may log are two thousand readable ones rather than two thousand
+            // token counters.
+            var readable = AgentStreamLine.Render(line);
 
             lock (_gate)
             {
+                // The transcript keeps what actually came out. Diagnostics shows
+                // it, so choosing what to log loses nothing.
                 _text.AppendLine(line);
                 if (_text.Length > MaximumRetainedCharacters)
                 {
                     _text.Remove(0, _text.Length - MaximumRetainedCharacters);
+                }
+
+                if (readable is null)
+                {
+                    return;
                 }
 
                 if (_loggedLines >= MaximumLoggedLines)
@@ -468,7 +482,7 @@ public abstract class CommandLineAgentAdapter : IAgentAdapter, IReportsRunOutcom
             adapter._logger.LogInformation(
                 "{Agent} > {Line}",
                 adapter.Name,
-                line.Length <= MaximumLineLength ? line : line[..MaximumLineLength] + "…");
+                readable.Length <= MaximumLineLength ? readable : readable[..MaximumLineLength] + "…");
         }
 
         public override string ToString()
