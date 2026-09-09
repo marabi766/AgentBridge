@@ -1,4 +1,22 @@
-# Agent Bridge
+<p align="center">
+  <img src="docs/logo.png" alt="Agent Bridge" width="420">
+</p>
+
+<h1 align="center">Agent Bridge</h1>
+
+<p align="center">
+  Claude and Codex, working the same repository in turn — unattended, and through
+  a locked screen.
+</p>
+
+<p align="center">
+  <a href="https://github.com/marabi766/AgentBridge/releases/latest">
+    <img src="https://img.shields.io/github/v/release/marabi766/AgentBridge?label=release" alt="Latest release"></a>
+  <img src="https://img.shields.io/badge/platform-Windows%20x64-blue" alt="Windows x64">
+  <img src="https://img.shields.io/badge/tests-267%20passing-brightgreen" alt="267 tests passing">
+</p>
+
+---
 
 Agent Bridge runs Claude and Codex against the same repository in a supervised
 loop. Claude implements a step and writes a report; Codex reads the repository,
