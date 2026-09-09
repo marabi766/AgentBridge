@@ -34,6 +34,14 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private bool _startMinimized;
     private bool _darkTheme;
     private bool _dryRun = true;
+    private bool _useClaudeCli;
+    private bool _useCodexCli;
+    private string _claudeCliExecutable = "claude";
+    private string _claudeCliArguments = string.Empty;
+    private int _claudeCliTimeoutSeconds = 3600;
+    private string _codexCliExecutable = "codex";
+    private string _codexCliArguments = string.Empty;
+    private int _codexCliTimeoutSeconds = 1800;
     private BridgeStartPoint _selectedStartPoint = BridgeStartPoint.WaitForClaudeReport;
     private int _setupStep = 1;
     private string _setupValidation = "No project validation has run yet.";
@@ -213,6 +221,95 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public bool AutoStart { get => _autoStart; set => SetProperty(ref _autoStart, value); }
     public bool StartMinimized { get => _startMinimized; set => SetProperty(ref _startMinimized, value); }
     public bool DryRun { get => _dryRun; set => SetProperty(ref _dryRun, value); }
+
+    /// <summary>
+    /// Which way Claude is driven: its command line when true, the Claude
+    /// desktop window when false. The command line keeps working while Windows
+    /// is locked; reading a window does not.
+    /// </summary>
+    public bool UseClaudeCli
+    {
+        get => _useClaudeCli;
+        set
+        {
+            if (SetProperty(ref _useClaudeCli, value))
+            {
+                OnPropertyChanged(nameof(UseClaudeDesktop));
+            }
+        }
+    }
+
+    /// <summary>
+    /// The other side of the same choice, so the two radio buttons can each bind
+    /// to a property instead of the view needing a converter to negate one.
+    /// Setting it only acts when selected: a radio button also reports false as
+    /// it loses selection, and acting on that would undo the choice just made.
+    /// </summary>
+    public bool UseClaudeDesktop
+    {
+        get => !_useClaudeCli;
+        set
+        {
+            if (value)
+            {
+                UseClaudeCli = false;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Which way Codex is driven: its command line when true, the ChatGPT
+    /// desktop window when false. Resolved per call by the adapter provider, so
+    /// this takes effect on save rather than on the next restart.
+    /// </summary>
+    public bool UseCodexCli
+    {
+        get => _useCodexCli;
+        set
+        {
+            if (SetProperty(ref _useCodexCli, value))
+            {
+                OnPropertyChanged(nameof(UseCodexDesktop));
+            }
+        }
+    }
+
+    /// <summary>
+    /// The other side of the same choice, so the two radio buttons can each bind
+    /// to a property instead of the view needing a converter to negate one.
+    /// Setting it only acts when selected: a radio button also reports false as
+    /// it loses selection, and acting on that would undo the choice just made.
+    /// </summary>
+    public bool UseCodexDesktop
+    {
+        get => !_useCodexCli;
+        set
+        {
+            if (value)
+            {
+                UseCodexCli = false;
+            }
+        }
+    }
+    /// <summary>
+    /// How each command line agent is invoked. Exposed rather than left to the
+    /// settings file because the flags decide whether an unattended run can do
+    /// its job at all: a permission mode that stops to ask has nobody to ask, and
+    /// the run simply produces nothing. An operator who cannot change that from
+    /// here cannot fix it without a text editor.
+    /// </summary>
+    public string ClaudeCliExecutable { get => _claudeCliExecutable; set => SetProperty(ref _claudeCliExecutable, value); }
+
+    public string ClaudeCliArguments { get => _claudeCliArguments; set => SetProperty(ref _claudeCliArguments, value); }
+
+    public int ClaudeCliTimeoutSeconds { get => _claudeCliTimeoutSeconds; set => SetProperty(ref _claudeCliTimeoutSeconds, value); }
+
+    public string CodexCliExecutable { get => _codexCliExecutable; set => SetProperty(ref _codexCliExecutable, value); }
+
+    public string CodexCliArguments { get => _codexCliArguments; set => SetProperty(ref _codexCliArguments, value); }
+
+    public int CodexCliTimeoutSeconds { get => _codexCliTimeoutSeconds; set => SetProperty(ref _codexCliTimeoutSeconds, value); }
+
     public bool DarkTheme
     {
         get => _darkTheme;
@@ -489,6 +586,14 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         StartMinimized = StartMinimized,
         DarkTheme = DarkTheme,
         DryRun = DryRun,
+        UseClaudeCli = UseClaudeCli,
+        UseCodexCli = UseCodexCli,
+        ClaudeCliExecutable = ClaudeCliExecutable,
+        ClaudeCliArguments = ClaudeCliArguments,
+        ClaudeCliTimeoutSeconds = ClaudeCliTimeoutSeconds,
+        CodexCliExecutable = CodexCliExecutable,
+        CodexCliArguments = CodexCliArguments,
+        CodexCliTimeoutSeconds = CodexCliTimeoutSeconds,
     };
 
     private void LoadSettings(BridgeConfiguration value)
@@ -507,6 +612,14 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         StartMinimized = value.StartMinimized;
         DarkTheme = value.DarkTheme;
         DryRun = value.DryRun;
+        UseClaudeCli = value.UseClaudeCli;
+        UseCodexCli = value.UseCodexCli;
+        ClaudeCliExecutable = value.ClaudeCliExecutable;
+        ClaudeCliArguments = value.ClaudeCliArguments;
+        ClaudeCliTimeoutSeconds = value.ClaudeCliTimeoutSeconds;
+        CodexCliExecutable = value.CodexCliExecutable;
+        CodexCliArguments = value.CodexCliArguments;
+        CodexCliTimeoutSeconds = value.CodexCliTimeoutSeconds;
     }
 
     private static string? NullIfWhiteSpace(string value) =>

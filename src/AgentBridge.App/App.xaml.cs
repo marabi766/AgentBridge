@@ -102,6 +102,9 @@ public partial class App : System.Windows.Application
         builder.Services.AddSingleton<IConversationLocator, SemanticConversationLocator>();
         builder.Services.AddSingleton<IInputLocator, SemanticInputLocator>();
         builder.Services.AddSingleton<IMessageSender, VerifiedMessageSender>();
+        // Both ways of reaching each agent are registered. Which one runs is the
+        // operator's setting, resolved by the provider each time an adapter is
+        // asked for, so changing it in Settings takes effect without a restart.
         builder.Services.AddSingleton<IAgentAdapter>(sp => new ClaudeDesktopAdapter(
             bootstrapConfig.ClaudeProcessName,
             bootstrapConfig.ClaudeExecutablePath,
@@ -110,26 +113,20 @@ public partial class App : System.Windows.Application
             sp.GetRequiredService<IInputLocator>(),
             sp.GetRequiredService<IMessageSender>(),
             sp.GetRequiredService<ILogger<ClaudeDesktopAdapter>>()));
-        // Codex is reachable two ways and only one of them is registered, because
-        // the provider resolves an adapter by role and two claimants for the same
-        // role would make which one runs an accident of ordering.
-        if (bootstrapConfig.UseCodexCli)
-        {
-            builder.Services.AddSingleton<IAgentAdapter>(sp => new CodexCliAdapter(
-                sp.GetRequiredService<IConfigurationService>(),
-                sp.GetRequiredService<ILogger<CodexCliAdapter>>()));
-        }
-        else
-        {
-            builder.Services.AddSingleton<IAgentAdapter>(sp => new ChatGptDesktopAdapter(
-                bootstrapConfig.ChatGptProcessName,
-                bootstrapConfig.ChatGptExecutablePath,
-                sp.GetRequiredService<IConfigurationService>(),
-                sp.GetRequiredService<IConversationLocator>(),
-                sp.GetRequiredService<IInputLocator>(),
-                sp.GetRequiredService<IMessageSender>(),
-                sp.GetRequiredService<ILogger<ChatGptDesktopAdapter>>()));
-        }
+        builder.Services.AddSingleton<IAgentAdapter>(sp => new ClaudeCliAdapter(
+            sp.GetRequiredService<IConfigurationService>(),
+            sp.GetRequiredService<ILogger<ClaudeCliAdapter>>()));
+        builder.Services.AddSingleton<IAgentAdapter>(sp => new ChatGptDesktopAdapter(
+            bootstrapConfig.ChatGptProcessName,
+            bootstrapConfig.ChatGptExecutablePath,
+            sp.GetRequiredService<IConfigurationService>(),
+            sp.GetRequiredService<IConversationLocator>(),
+            sp.GetRequiredService<IInputLocator>(),
+            sp.GetRequiredService<IMessageSender>(),
+            sp.GetRequiredService<ILogger<ChatGptDesktopAdapter>>()));
+        builder.Services.AddSingleton<IAgentAdapter>(sp => new CodexCliAdapter(
+            sp.GetRequiredService<IConfigurationService>(),
+            sp.GetRequiredService<ILogger<CodexCliAdapter>>()));
         builder.Services.AddSingleton<IAgentAdapterProvider, DefaultAgentAdapterProvider>();
         builder.Services.AddSingleton<IAgentDiagnosticsService, AgentDiagnosticsService>();
 

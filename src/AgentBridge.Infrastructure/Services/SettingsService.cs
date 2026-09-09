@@ -83,15 +83,40 @@ public sealed class SettingsService(IConfigurationService configurationService) 
 
         if (!configuration.DryRun)
         {
-            if (string.IsNullOrWhiteSpace(configuration.ClaudeConversationIdentifier))
+            // What a live run needs depends on how each agent is reached. A
+            // conversation title is how the desktop route proves it is typing into
+            // the right chat; a command line has no window, no chat list and
+            // nothing the title could select, so demanding one there would force
+            // the operator to invent a value that is never read.
+            if (!configuration.UseClaudeCli && string.IsNullOrWhiteSpace(configuration.ClaudeConversationIdentifier))
             {
-                errors.Add("Claude conversation identifier is required for Live mode.");
+                errors.Add("Claude conversation identifier is required for Live mode with Claude Desktop.");
             }
 
-            if (string.IsNullOrWhiteSpace(configuration.CodexConversationIdentifier))
+            if (!configuration.UseCodexCli && string.IsNullOrWhiteSpace(configuration.CodexConversationIdentifier))
             {
-                errors.Add("Codex conversation identifier is required for Live mode.");
+                errors.Add("Codex conversation identifier is required for Live mode with ChatGPT Desktop.");
             }
+
+            if (configuration.UseClaudeCli && string.IsNullOrWhiteSpace(configuration.ClaudeCliExecutable))
+            {
+                errors.Add("Claude CLI executable is required for Live mode with the Claude CLI.");
+            }
+
+            if (configuration.UseCodexCli && string.IsNullOrWhiteSpace(configuration.CodexCliExecutable))
+            {
+                errors.Add("Codex CLI executable is required for Live mode with the Codex CLI.");
+            }
+        }
+
+        if (configuration.ClaudeCliTimeoutSeconds <= 0)
+        {
+            errors.Add("Claude CLI run timeout must be greater than zero.");
+        }
+
+        if (configuration.CodexCliTimeoutSeconds <= 0)
+        {
+            errors.Add("Codex CLI run timeout must be greater than zero.");
         }
 
         return Task.FromResult(errors.Count == 0 ? SettingsValidationResult.Success() : SettingsValidationResult.Failure([.. errors]));

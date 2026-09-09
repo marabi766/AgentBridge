@@ -41,6 +41,30 @@ This approval applies to the backend corrective gate, not to the unfinished prod
 - Wired real adapters into the WPF host and added guarded Live-mode settings with exact target identifiers.
 - Added a reusable read-only accessibility probe and UI Automation selector tests.
 
+## Headless Mode
+
+A second host, `AgentBridge.Cli`, runs the same orchestration with no window at
+all: both agents are driven as processes (`claude --print`, `codex exec`), so the
+loop keeps working while the Windows session is locked. It deliberately does not
+reference `AgentBridge.UIAutomation`, and the architecture guard enforces that.
+Launch it with `scriptsgent-bridge.bat` or `scriptsgent-bridge.ps1`; see
+`HEADLESS.md`.
+
+## Unattended Robustness
+
+Two failure modes that only appear in an unattended run are now handled rather
+than waited on forever:
+
+- An agent that exits without writing its protocol file ends the run with an
+  error naming the agent and the file. Previously nothing noticed, because both
+  waits are passive; a real run sat in that state for nearly eight hours.
+- An agent that runs out of allowance is announced, waited out, and sent its
+  instruction again once the allowance resets — bounded to five attempts per
+  iteration.
+
+Each agent's output is also logged line by line as it arrives, so a run that is
+working and a run that is stuck are distinguishable while they are happening.
+
 ## Validation Evidence
 
 - Debug build: passed with 0 warnings and 0 errors.
