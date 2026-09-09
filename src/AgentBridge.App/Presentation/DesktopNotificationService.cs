@@ -24,12 +24,41 @@ public sealed class DesktopNotificationService : INotificationService, IDisposab
 
         _icon = new Forms.NotifyIcon
         {
-            Icon = Drawing.SystemIcons.Application,
+            Icon = LoadTrayIcon(),
             Text = "Agent Bridge — starting",
             ContextMenuStrip = menu,
             Visible = true,
         };
         _icon.DoubleClick += (_, _) => OpenRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// The application's own icon at the size this desktop wants for a tray, so
+    /// Windows picks the entry drawn for that size rather than rescaling a larger
+    /// one. The tray showed the generic Windows placeholder until now, which is
+    /// the icon a user cannot find among a dozen others.
+    ///
+    /// Falls back rather than throws: no icon in the tray is a poor result, but a
+    /// notification service that cannot be constructed takes the whole
+    /// application down with it.
+    /// </summary>
+    private static Drawing.Icon LoadTrayIcon()
+    {
+        try
+        {
+            var uri = new Uri("pack://application:,,,/Assets/AgentBridge.ico", UriKind.Absolute);
+            using var stream = System.Windows.Application.GetResourceStream(uri)?.Stream;
+            if (stream is not null)
+            {
+                return new Drawing.Icon(stream, Forms.SystemInformation.SmallIconSize);
+            }
+        }
+        catch (Exception)
+        {
+            // Any failure here is cosmetic; the placeholder below still works.
+        }
+
+        return Drawing.SystemIcons.Application;
     }
 
     public event EventHandler? OpenRequested;
