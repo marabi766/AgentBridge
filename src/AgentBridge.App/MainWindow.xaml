@@ -218,8 +218,8 @@
                                 <Button Content="Refresh" Command="{Binding LoadActivityCommand}" />
                                 <Button Content="Export…" Command="{Binding ExportActivityCommand}"
                                         automation:AutomationProperties.HelpText="Writes every stored log, oldest first, to one file." />
-                                <Button Content="Clear…" Command="{Binding ClearActivityCommand}" Foreground="{DynamicResource ErrorBrush}"
-                                        automation:AutomationProperties.HelpText="Deletes the stored log files. Today's log is in use and is left in place." />
+                                <Button Content="Clear view" Command="{Binding ClearActivityCommand}"
+                                        automation:AutomationProperties.HelpText="Empties this list so the next step is easy to watch. The log files are untouched; Refresh brings them back." />
                             </StackPanel>
                         </DockPanel>
                         <TextBlock Text="Prompt and report bodies are redacted from application logs." Foreground="{DynamicResource WarningBrush}" Margin="0,0,0,12" />

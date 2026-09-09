@@ -17,11 +17,4 @@ public interface ILogService
     /// past. Returns how many entries were written.
     /// </summary>
     Task<int> ExportAsync(string destinationPath, CancellationToken cancellationToken);
-
-    /// <summary>
-    /// Deletes the stored log files. The file currently being written cannot be
-    /// removed while the application holds it open, so the result says what was
-    /// actually deleted and what was left.
-    /// </summary>
-    Task<LogClearResult> ClearAsync(CancellationToken cancellationToken);
 }

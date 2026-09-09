@@ -96,7 +96,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         SetupBackCommand = new RelayCommand(_ => SetupStep--, _ => SetupStep > 1);
         ResetStateCommand = new AsyncCommand(ResetStateAsync, () => CanResetState);
         ExportActivityCommand = new AsyncCommand(ExportActivityAsync);
-        ClearActivityCommand = new AsyncCommand(ClearActivityAsync);
+        ClearActivityCommand = new RelayCommand(_ => ClearActivityView());
         NavigateCommand = new RelayCommand(p => CurrentPage = p?.ToString() ?? "Dashboard");
     }
 
@@ -118,7 +118,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public RelayCommand SetupBackCommand { get; }
     public AsyncCommand ResetStateCommand { get; }
     public AsyncCommand ExportActivityCommand { get; }
-    public AsyncCommand ClearActivityCommand { get; }
+    public RelayCommand ClearActivityCommand { get; }
     public RelayCommand NavigateCommand { get; }
     public ObservableCollection<LogEntry> ActivityEntries { get; } = [];
     public IReadOnlyList<BridgeStartPointOption> StartPointOptions { get; } =
@@ -137,7 +137,6 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public Func<bool>? ConfirmLiveEnable { get; set; }
     public Func<string?>? SelectProjectFolder { get; set; }
     public Func<string, string?>? ChooseExportFile { get; set; }
-    public Func<bool>? ConfirmClearActivity { get; set; }
     public Action<bool>? ThemeChanged { get; set; }
     public Action<bool>? NotificationsChanged { get; set; }
 
@@ -606,23 +605,19 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         catch (Exception ex) { OperationMessage = $"Could not export the log: {ex.Message}"; }
     }
 
-    private async Task ClearActivityAsync()
+    /// <summary>
+    /// Empties what the page is showing. The log files themselves are left
+    /// alone — this is a way to get a clean view before watching the next step,
+    /// not a way to destroy the record of the last one.
+    ///
+    /// Following has to stop, or the next tick would refill the list within
+    /// seconds and the button would look broken.
+    /// </summary>
+    private void ClearActivityView()
     {
-        if (ConfirmClearActivity?.Invoke() != true) return;
-
-        try
-        {
-            var result = await _logService.ClearAsync(CancellationToken.None);
-            await LoadActivityAsync();
-
-            // Saying "cleared" when a file is still on disk would be found out
-            // later, by which time the operator has stopped believing the screen.
-            OperationMessage = result.FilesInUse.Count == 0
-                ? $"Deleted {result.FilesDeleted} log file(s)."
-                : $"Deleted {result.FilesDeleted} log file(s). {string.Join(", ", result.FilesInUse)} "
-                  + "is still being written and stays until the application closes.";
-        }
-        catch (Exception ex) { OperationMessage = $"Could not clear the log: {ex.Message}"; }
+        FollowActivity = false;
+        ActivityEntries.Clear();
+        OperationMessage = "Activity view cleared. The log files are unchanged — Refresh brings them back.";
     }
 
     private async Task TestClaudeAsync()

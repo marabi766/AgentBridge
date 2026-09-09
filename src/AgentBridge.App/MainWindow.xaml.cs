@@ -27,7 +27,6 @@ public partial class MainWindow : System.Windows.Window
         _viewModel.ConfirmLiveEnable = ConfirmLiveEnable;
         _viewModel.SelectProjectFolder = SelectProjectFolder;
         _viewModel.ChooseExportFile = ChooseExportFile;
-        _viewModel.ConfirmClearActivity = ConfirmClearActivity;
         _viewModel.ThemeChanged = ThemeManager.Apply;
         _viewModel.NotificationsChanged = _tray.SetNotificationsEnabled;
         DataContext = viewModel;
@@ -94,17 +93,6 @@ public partial class MainWindow : System.Windows.Window
 
         return dialog.ShowDialog(this) == true ? dialog.FileName : null;
     }
-
-    private bool ConfirmClearActivity() => MessageBox.Show(
-        this,
-        "This permanently deletes the stored Agent Bridge log files. Today's log is held open while the "
-        + "application is running and will be left in place.\n\n"
-        + "Project files, settings and Git data are not touched.\n\n"
-        + "Export first if you might need it.\n\nDelete the stored logs?",
-        "Clear Agent Bridge logs",
-        MessageBoxButton.OKCancel,
-        MessageBoxImage.Warning,
-        MessageBoxResult.Cancel) == MessageBoxResult.OK;
 
     private string? SelectProjectFolder()
     {

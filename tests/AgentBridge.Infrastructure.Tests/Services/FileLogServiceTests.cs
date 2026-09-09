@@ -51,22 +51,6 @@ public sealed class FileLogServiceTests : IDisposable
             "Days must be exported oldest first.");
     }
 
-    [Fact]
-    public async Task ClearAsync_ReportsTheFileItCouldNotDeleteRatherThanClaimingSuccess()
-    {
-        Directory.CreateDirectory(_directory);
-        await File.WriteAllTextAsync(Path.Combine(_directory, "2026-09-01.log"), "old" + Environment.NewLine);
-
-        var today = Path.Combine(_directory, "2026-09-02.log");
-        await using var open = new FileStream(today, FileMode.Append, FileAccess.Write, FileShare.Read);
-
-        var result = await new FileLogService(_directory).ClearAsync(CancellationToken.None);
-
-        Assert.Equal(1, result.FilesDeleted);
-        Assert.Equal(["2026-09-02.log"], result.FilesInUse);
-        Assert.True(File.Exists(today), "The open file must survive so the report is truthful.");
-    }
-
     public void Dispose()
     {
         if (Directory.Exists(_directory)) Directory.Delete(_directory, recursive: true);

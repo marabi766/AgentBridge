@@ -134,37 +134,4 @@ public sealed partial class FileLogService(string logsDirectory) : ILogService
 
         return written;
     }
-
-    public Task<LogClearResult> ClearAsync(CancellationToken cancellationToken)
-    {
-        var deleted = 0;
-        var inUse = new List<string>();
-
-        if (!Directory.Exists(logsDirectory))
-        {
-            return Task.FromResult(new LogClearResult { FilesDeleted = 0, FilesInUse = inUse });
-        }
-
-        foreach (var file in Directory.EnumerateFiles(logsDirectory, "*.log"))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            try
-            {
-                File.Delete(file);
-                deleted++;
-            }
-            catch (IOException)
-            {
-                // The day being written to is held open by the logger. Say so
-                // rather than reporting a deletion that did not happen.
-                inUse.Add(Path.GetFileName(file));
-            }
-            catch (UnauthorizedAccessException)
-            {
-                inUse.Add(Path.GetFileName(file));
-            }
-        }
-
-        return Task.FromResult(new LogClearResult { FilesDeleted = deleted, FilesInUse = inUse });
-    }
 }
