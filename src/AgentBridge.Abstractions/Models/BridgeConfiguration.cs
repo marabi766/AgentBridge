@@ -35,13 +35,40 @@ public sealed record BridgeConfiguration
 
     public bool AutoLaunchChatGpt { get; init; }
 
+    // --- Claude CLI ---
+    // Drives Claude Code as a command line process instead of through the Claude
+    // desktop window. On by default, because this is the path that actually
+    // holds up: a pipe cannot be stale, frozen, half rendered or occupied by a
+    // leftover draft, delivery is confirmed by the process rather than inferred
+    // from pixels, and it keeps working while the Windows session is locked —
+    // which no window-reading path can. The desktop route stays available for
+    // anyone who wants to watch the conversation happen in the app.
+    public bool UseClaudeCli { get; init; } = true;
+
+    public string ClaudeCliExecutable { get; init; } = "claude";
+
+    /// <summary>
+    /// Arguments for one non-interactive run, space separated. <c>--print</c> is
+    /// what makes the run non-interactive; with no prompt argument the CLI reads
+    /// the instruction from stdin, which is what makes a long multi-line
+    /// instruction safe to pass — no quoting or escaping is involved.
+    ///
+    /// The permission mode is the counterpart of Codex's <c>workspace-write</c>
+    /// sandbox: an unattended loop has nobody to answer a permission prompt, so a
+    /// run that has to ask simply stalls and produces no report.
+    /// <c>acceptEdits</c> is the conservative choice and still asks before
+    /// running commands; operators who want the loop to build and test without
+    /// supervision set <c>--dangerously-skip-permissions</c> here.
+    /// </summary>
+    public string ClaudeCliArguments { get; init; } = "--print --permission-mode acceptEdits";
+
+    /// <summary>How long one Claude run may take before it is abandoned.</summary>
+    public int ClaudeCliTimeoutSeconds { get; init; } = 3600;
+
     // --- Codex CLI ---
     // Drives Codex as a command line process instead of through the ChatGPT
-    // desktop window. Nothing in a pipe can be stale, frozen, half rendered or
-    // occupied by a leftover draft, which is where every delivery fault in the
-    // desktop path has come from. Off by default: the CLI has to be installed
-    // and signed in first.
-    public bool UseCodexCli { get; init; }
+    // desktop window. On by default, for the reasons given above.
+    public bool UseCodexCli { get; init; } = true;
 
     public string CodexCliExecutable { get; init; } = "codex";
 

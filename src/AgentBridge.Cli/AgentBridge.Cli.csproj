@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>AgentBridge.Cli</RootNamespace>
+    <AssemblyName>agent-bridge</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <!--
+    Deliberately no reference to AgentBridge.UIAutomation. This host exists to
+    run without a desktop at all, and a project reference would drag FlaUI and
+    the UIA3 COM interop into a process that must keep working while the Windows
+    session is locked.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\AgentBridge.Abstractions\AgentBridge.Abstractions.csproj" />
+    <ProjectReference Include="..\AgentBridge.Core\AgentBridge.Core.csproj" />
+    <ProjectReference Include="..\AgentBridge.Infrastructure\AgentBridge.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.11" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.11" />
+  </ItemGroup>
+
+</Project>

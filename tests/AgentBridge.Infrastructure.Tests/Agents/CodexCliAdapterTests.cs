@@ -48,7 +48,7 @@ public sealed class CodexCliAdapterTests
         // "-" is what tells Codex to read it from stdin instead.
         var configuration = new BridgeConfiguration();
 
-        Assert.False(configuration.UseCodexCli);
+        Assert.True(configuration.UseCodexCli);
         Assert.Equal("codex", configuration.CodexCliExecutable);
         Assert.EndsWith(" -", configuration.CodexCliArguments);
         Assert.Contains("workspace-write", configuration.CodexCliArguments);
