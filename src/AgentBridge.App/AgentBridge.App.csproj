@@ -22,6 +22,9 @@
 
   <ItemGroup>
     <Resource Include="Assets\AgentBridgeLogo.png" />
+    <!-- Also embedded, not only set as ApplicationIcon: the tray needs to load
+         the multi-resolution file at run time to pick the size drawn for it. -->
+    <Resource Include="Assets\AgentBridge.ico" />
   </ItemGroup>
 
   <ItemGroup>

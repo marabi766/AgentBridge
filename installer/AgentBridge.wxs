@@ -32,9 +32,12 @@
       <Directory Id="AppMenuFolder" Name="Agent Bridge" />
     </StandardDirectory>
 
+    <StandardDirectory Id="DesktopFolder" />
+
     <Feature Id="Main" Title="Agent Bridge" Level="1">
       <ComponentGroupRef Id="AppFiles" />
       <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="DesktopShortcut" />
     </Feature>
 
     <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
@@ -42,14 +45,29 @@
     </ComponentGroup>
 
     <Component Id="StartMenuShortcut" Directory="AppMenuFolder" Guid="*">
+      <!-- Naming the icon explicitly rather than letting the shell infer it from
+           the target: an inferred icon is cached per path, and an upgrade that
+           reuses the path keeps showing the previous build's icon until the
+           cache is cleared. -->
       <Shortcut
           Id="AppShortcut"
           Name="Agent Bridge"
           Description="Supervised Claude and Codex handoff bridge"
           Target="[INSTALLFOLDER]AgentBridge.App.exe"
-          WorkingDirectory="INSTALLFOLDER" />
+          WorkingDirectory="INSTALLFOLDER"
+          Icon="AppIcon" />
       <RemoveFolder Id="RemoveAppMenuFolder" Directory="AppMenuFolder" On="uninstall" />
       <RegistryValue Root="HKCU" Key="Software\Agent Bridge" Name="installed" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+    <Component Id="DesktopShortcut" Directory="DesktopFolder" Guid="*">
+      <Shortcut
+          Id="AppDesktopShortcut"
+          Name="Agent Bridge"
+          Description="Supervised Claude and Codex handoff bridge"
+          Target="[INSTALLFOLDER]AgentBridge.App.exe"
+          WorkingDirectory="INSTALLFOLDER"
+          Icon="AppIcon" />
+      <RegistryValue Root="HKCU" Key="Software\Agent Bridge" Name="desktopShortcut" Type="integer" Value="1" KeyPath="yes" />
     </Component>
   </Package>
 </Wix>

@@ -78,11 +78,16 @@ public sealed class SettingsServiceTests : IDisposable
     [Fact]
     public async Task Validate_LiveModeWithoutBothConversationIdentifiers_Fails()
     {
+        // Both transports are named explicitly. The rule is about the desktop
+        // route, and the default is now the command line — leaving it implicit
+        // would make this test quietly stop exercising anything.
         var service = CreateService();
         var config = BridgeConfiguration.CreateDefault() with
         {
             ProjectPath = _dir,
             DryRun = false,
+            UseClaudeCli = false,
+            UseCodexCli = false,
             ClaudeConversationIdentifier = "Claude target",
         };
 
@@ -150,5 +155,95 @@ public sealed class SettingsServiceTests : IDisposable
         {
             // Best-effort cleanup.
         }
+    }
+
+    /// <summary>
+    /// A configuration that would pass on every count except the one each test
+    /// below deliberately breaks, so a failure names the rule under test rather
+    /// than something incidental.
+    /// </summary>
+    private BridgeConfiguration ValidLiveConfiguration() => BridgeConfiguration.CreateDefault() with
+    {
+        ProjectPath = _dir,
+        DryRun = false,
+        ClaudeConversationIdentifier = "a chat",
+        CodexConversationIdentifier = "another chat",
+    };
+
+    [Fact]
+    public async Task ALiveRunOnTheCommandLineDoesNotNeedAConversationTitle()
+    {
+        // A command line has no window, no chat list and nothing a title could
+        // select, so requiring one would force the operator to invent a value
+        // that is never read — and, until this, blocked the save outright.
+        var result = await CreateService().ValidateAsync(ValidLiveConfiguration() with
+        {
+            UseClaudeCli = true,
+            UseCodexCli = true,
+            ClaudeConversationIdentifier = null,
+            CodexConversationIdentifier = null,
+        }, CancellationToken.None);
+
+        Assert.True(result.IsValid, string.Join("; ", result.Errors));
+    }
+
+    [Fact]
+    public async Task ALiveRunThroughTheDesktopWindowStillNeedsItsTitle()
+    {
+        var result = await CreateService().ValidateAsync(ValidLiveConfiguration() with
+        {
+            UseClaudeCli = false,
+            UseCodexCli = false,
+            ClaudeConversationIdentifier = null,
+            CodexConversationIdentifier = null,
+        }, CancellationToken.None);
+
+        Assert.False(result.IsValid);
+        Assert.Equal(2, result.Errors.Count);
+    }
+
+    [Fact]
+    public async Task EachAgentIsJudgedByItsOwnTransport()
+    {
+        // Claude on the command line, Codex in its window: only the second needs
+        // a title, and a rule that looked at one flag for both would get this
+        // mixed configuration wrong in one direction or the other.
+        var result = await CreateService().ValidateAsync(ValidLiveConfiguration() with
+        {
+            UseClaudeCli = true,
+            UseCodexCli = false,
+            ClaudeConversationIdentifier = null,
+            CodexConversationIdentifier = null,
+        }, CancellationToken.None);
+
+        Assert.False(result.IsValid);
+        var only = Assert.Single(result.Errors);
+        Assert.Contains("Codex", only, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ALiveCommandLineRunNeedsSomethingToRun()
+    {
+        var result = await CreateService().ValidateAsync(ValidLiveConfiguration() with
+        {
+            UseClaudeCli = true,
+            ClaudeCliExecutable = "   ",
+        }, CancellationToken.None);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Contains("Claude CLI executable", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-30)]
+    public async Task ARunTimeoutThatIsNotPositiveIsRejected(int seconds)
+    {
+        // Zero would cancel every run the instant it started, which looks exactly
+        // like an agent that refuses to do anything.
+        var result = await CreateService().ValidateAsync(
+            ValidLiveConfiguration() with { ClaudeCliTimeoutSeconds = seconds }, CancellationToken.None);
+
+        Assert.False(result.IsValid);
     }
 }

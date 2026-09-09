@@ -26,6 +26,7 @@ public partial class MainWindow : System.Windows.Window
         _viewModel.ConfirmReset = ConfirmReset;
         _viewModel.ConfirmLiveEnable = ConfirmLiveEnable;
         _viewModel.SelectProjectFolder = SelectProjectFolder;
+        _viewModel.ChooseExportFile = ChooseExportFile;
         _viewModel.ThemeChanged = ThemeManager.Apply;
         _viewModel.NotificationsChanged = _tray.SetNotificationsEnabled;
         DataContext = viewModel;
@@ -62,7 +63,10 @@ public partial class MainWindow : System.Windows.Window
 
     private bool ConfirmReset() => MessageBox.Show(
         this,
-        "Resetting discards the current iteration counter, recorded protocol-file hashes, and retry progress. Protocol files, project settings, Git data, and logs are not changed.\n\nReset recovery state?",
+        "Resetting discards the current iteration counter, recorded protocol-file hashes, and retry progress. "
+        + "The current ClaudeResultReport.md and CodexPrompt.md then count as new again, so the next Start will "
+        + "act on whichever one the chosen checkpoint waits for.\n\n"
+        + "Protocol files, project settings, Git data, and logs are not changed.\n\nReset Agent Bridge state?",
         "Reset Agent Bridge state",
         MessageBoxButton.OKCancel,
         MessageBoxImage.Warning,
@@ -75,6 +79,20 @@ public partial class MainWindow : System.Windows.Window
         MessageBoxButton.OKCancel,
         MessageBoxImage.Warning,
         MessageBoxResult.Cancel) == MessageBoxResult.OK;
+
+    private string? ChooseExportFile(string suggestedName)
+    {
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "Export the Agent Bridge log",
+            FileName = suggestedName,
+            DefaultExt = ".txt",
+            Filter = "Text file (*.txt)|*.txt|Log file (*.log)|*.log|All files (*.*)|*.*",
+            InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+        };
+
+        return dialog.ShowDialog(this) == true ? dialog.FileName : null;
+    }
 
     private string? SelectProjectFolder()
     {

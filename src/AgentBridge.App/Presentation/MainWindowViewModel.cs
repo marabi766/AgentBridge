@@ -34,9 +34,33 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private bool _startMinimized;
     private bool _darkTheme;
     private bool _dryRun = true;
+    private bool _useClaudeCli;
+    private bool _useCodexCli;
+    private string _claudeCliExecutable = "claude";
+    private string _claudeCliArguments = string.Empty;
+    private int _claudeCliTimeoutSeconds = 3600;
+    private string _codexCliExecutable = "codex";
+    private string _codexCliArguments = string.Empty;
+    private int _codexCliTimeoutSeconds = 1800;
     private BridgeStartPoint _selectedStartPoint = BridgeStartPoint.WaitForClaudeReport;
     private int _setupStep = 1;
     private string _setupValidation = "No project validation has run yet.";
+
+    // Follows the log while the Activity page is open. Off by default would make
+    // the page lie by omission during a live run: it would show the moment it was
+    // opened and nothing after, with no sign that it had stopped keeping up.
+    private bool _followActivity = true;
+
+    // Where the Activity page has read up to. Negative means "start from the
+    // end", which is how a fresh page begins without replaying the whole day.
+    private long _activityPosition = -1;
+
+    // The view holds more than one tail so a long run can be scrolled back
+    // through, but not without bound: a run printing twenty thousand lines would
+    // otherwise put every one of them in a grid.
+    private const int MaximumActivityEntries = 2000;
+
+    private int _agentLogLineLimit = 20_000;
 
     public MainWindowViewModel(
         IOrchestratorService orchestrator,
@@ -81,7 +105,9 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         BrowseProjectCommand = new RelayCommand(_ => BrowseProject());
         SetupNextCommand = new AsyncCommand(SetupNextAsync);
         SetupBackCommand = new RelayCommand(_ => SetupStep--, _ => SetupStep > 1);
-        ResetStateCommand = new AsyncCommand(ResetStateAsync, () => HasError);
+        ResetStateCommand = new AsyncCommand(ResetStateAsync, () => CanResetState);
+        ExportActivityCommand = new AsyncCommand(ExportActivityAsync);
+        ClearActivityCommand = new RelayCommand(_ => ClearActivityView());
         NavigateCommand = new RelayCommand(p => CurrentPage = p?.ToString() ?? "Dashboard");
     }
 
@@ -102,6 +128,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public AsyncCommand SetupNextCommand { get; }
     public RelayCommand SetupBackCommand { get; }
     public AsyncCommand ResetStateCommand { get; }
+    public AsyncCommand ExportActivityCommand { get; }
+    public RelayCommand ClearActivityCommand { get; }
     public RelayCommand NavigateCommand { get; }
     public ObservableCollection<LogEntry> ActivityEntries { get; } = [];
     public IReadOnlyList<BridgeStartPointOption> StartPointOptions { get; } =
@@ -119,6 +147,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public Func<bool>? ConfirmReset { get; set; }
     public Func<bool>? ConfirmLiveEnable { get; set; }
     public Func<string?>? SelectProjectFolder { get; set; }
+    public Func<string, string?>? ChooseExportFile { get; set; }
     public Action<bool>? ThemeChanged { get; set; }
     public Action<bool>? NotificationsChanged { get; set; }
 
@@ -148,6 +177,21 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public bool CanContinueWaitingForCodex => Status?.CurrentState == BridgeState.Error
         && Status.LastError?.StartsWith("Failed to deliver instruction to Codex", StringComparison.Ordinal) == true;
     public bool CanStop => Status?.CurrentState is not (null or BridgeState.Idle or BridgeState.Stopped);
+
+    /// <summary>
+    /// Reset is available whenever the bridge is not running, not only after an
+    /// error. Persisted state can strand a run without ever reaching Error: a
+    /// protocol file whose hash is already recorded as consumed is skipped
+    /// forever, so the bridge waits for a revision the other agent will never
+    /// write. Gating recovery on Error left that case with no way out of the
+    /// application at all — the file had to be deleted by hand.
+    ///
+    /// A run in flight is still excluded. Discarding the iteration counter and
+    /// recorded hashes underneath a live orchestration would be a different and
+    /// much worse problem than the one this solves.
+    /// </summary>
+    public bool CanResetState =>
+        Status?.CurrentState is null or BridgeState.Idle or BridgeState.Stopped or BridgeState.Error;
     public BridgeStartPoint SelectedStartPoint
     {
         get => _selectedStartPoint;
@@ -213,6 +257,108 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public bool AutoStart { get => _autoStart; set => SetProperty(ref _autoStart, value); }
     public bool StartMinimized { get => _startMinimized; set => SetProperty(ref _startMinimized, value); }
     public bool DryRun { get => _dryRun; set => SetProperty(ref _dryRun, value); }
+
+    /// <summary>
+    /// Whether the Activity page keeps reloading itself. Turning it off is what
+    /// makes the list readable while scrolling back through it — a reload jumps
+    /// to the newest entry, which fights anyone reading an older one.
+    /// </summary>
+    public bool FollowActivity { get => _followActivity; set => SetProperty(ref _followActivity, value); }
+
+    /// <summary>
+    /// Which way Claude is driven: its command line when true, the Claude
+    /// desktop window when false. The command line keeps working while Windows
+    /// is locked; reading a window does not.
+    /// </summary>
+    public bool UseClaudeCli
+    {
+        get => _useClaudeCli;
+        set
+        {
+            if (SetProperty(ref _useClaudeCli, value))
+            {
+                OnPropertyChanged(nameof(UseClaudeDesktop));
+            }
+        }
+    }
+
+    /// <summary>
+    /// The other side of the same choice, so the two radio buttons can each bind
+    /// to a property instead of the view needing a converter to negate one.
+    /// Setting it only acts when selected: a radio button also reports false as
+    /// it loses selection, and acting on that would undo the choice just made.
+    /// </summary>
+    public bool UseClaudeDesktop
+    {
+        get => !_useClaudeCli;
+        set
+        {
+            if (value)
+            {
+                UseClaudeCli = false;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Which way Codex is driven: its command line when true, the ChatGPT
+    /// desktop window when false. Resolved per call by the adapter provider, so
+    /// this takes effect on save rather than on the next restart.
+    /// </summary>
+    public bool UseCodexCli
+    {
+        get => _useCodexCli;
+        set
+        {
+            if (SetProperty(ref _useCodexCli, value))
+            {
+                OnPropertyChanged(nameof(UseCodexDesktop));
+            }
+        }
+    }
+
+    /// <summary>
+    /// The other side of the same choice, so the two radio buttons can each bind
+    /// to a property instead of the view needing a converter to negate one.
+    /// Setting it only acts when selected: a radio button also reports false as
+    /// it loses selection, and acting on that would undo the choice just made.
+    /// </summary>
+    public bool UseCodexDesktop
+    {
+        get => !_useCodexCli;
+        set
+        {
+            if (value)
+            {
+                UseCodexCli = false;
+            }
+        }
+    }
+    /// <summary>
+    /// How each command line agent is invoked. Exposed rather than left to the
+    /// settings file because the flags decide whether an unattended run can do
+    /// its job at all: a permission mode that stops to ask has nobody to ask, and
+    /// the run simply produces nothing. An operator who cannot change that from
+    /// here cannot fix it without a text editor.
+    /// </summary>
+    public string ClaudeCliExecutable { get => _claudeCliExecutable; set => SetProperty(ref _claudeCliExecutable, value); }
+
+    public string ClaudeCliArguments { get => _claudeCliArguments; set => SetProperty(ref _claudeCliArguments, value); }
+
+    public int ClaudeCliTimeoutSeconds { get => _claudeCliTimeoutSeconds; set => SetProperty(ref _claudeCliTimeoutSeconds, value); }
+
+    /// <summary>
+    /// Lines of one agent run written to the log before the rest is kept for
+    /// diagnostics only. Zero means no limit.
+    /// </summary>
+    public int AgentLogLineLimit { get => _agentLogLineLimit; set => SetProperty(ref _agentLogLineLimit, value); }
+
+    public string CodexCliExecutable { get => _codexCliExecutable; set => SetProperty(ref _codexCliExecutable, value); }
+
+    public string CodexCliArguments { get => _codexCliArguments; set => SetProperty(ref _codexCliArguments, value); }
+
+    public int CodexCliTimeoutSeconds { get => _codexCliTimeoutSeconds; set => SetProperty(ref _codexCliTimeoutSeconds, value); }
+
     public bool DarkTheme
     {
         get => _darkTheme;
@@ -271,6 +417,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             }
             await LoadActivityAsync();
             _ = RefreshStatusPeriodicallyAsync(_statusRefreshCts.Token);
+            _ = FollowActivityPeriodicallyAsync(_statusRefreshCts.Token);
         }
         catch (Exception ex) { OperationMessage = $"Startup failed safely: {ex.Message}"; }
     }
@@ -294,7 +441,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private async Task ResetStateAsync()
     {
         if (ConfirmReset?.Invoke() != true) return;
-        await RunOperationAsync("Resetting recovery state…", _orchestrator.ResetStateAsync);
+        await RunOperationAsync("Resetting bridge state…", _orchestrator.ResetStateAsync);
     }
 
     private void BrowseProject()
@@ -395,15 +542,127 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>
+    /// Replaces the list with a fresh tail. This is Refresh — the deliberate
+    /// "show me what is there", as against the incremental follow below.
+    /// </summary>
     private async Task LoadActivityAsync()
     {
         try
         {
-            var entries = await _logService.TailAsync(250, CancellationToken.None);
+            var tail = await _logService.ReadSinceAsync(-1, 250, CancellationToken.None);
+            _activityPosition = tail.Position;
             ActivityEntries.Clear();
-            foreach (var entry in entries.Reverse()) ActivityEntries.Add(entry);
+            foreach (var entry in tail.Entries.Reverse()) ActivityEntries.Add(entry);
         }
         catch (Exception ex) { OperationMessage = $"Could not read activity: {ex.Message}"; }
+    }
+
+    /// <summary>
+    /// Reloads the Activity list while that page is open and following is on.
+    /// Runs on its own cadence rather than with the status poll: the log is read
+    /// from disk and there is no reason to pay for that on the other pages.
+    /// </summary>
+    private async Task FollowActivityPeriodicallyAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
+            while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+            {
+                if (!IsActivity || !FollowActivity)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    var tail = await _logService
+                        .ReadSinceAsync(_activityPosition, 250, cancellationToken)
+                        .ConfigureAwait(false);
+
+                    if (tail.Entries.Count == 0 && !tail.Restarted)
+                    {
+                        _activityPosition = tail.Position;
+                        continue;
+                    }
+
+                    _uiContext.Post(_ =>
+                    {
+                        // A new day's file is a different stretch of time. Showing
+                        // it above yesterday's entries would read as one run.
+                        if (tail.Restarted)
+                        {
+                            ActivityEntries.Clear();
+                        }
+
+                        // Newest first, so each arrival goes to the top and the
+                        // entries already there are not touched — which is what
+                        // leaves a reader's scroll position and selection alone.
+                        foreach (var entry in tail.Entries)
+                        {
+                            ActivityEntries.Insert(0, entry);
+                        }
+
+                        while (ActivityEntries.Count > MaximumActivityEntries)
+                        {
+                            ActivityEntries.RemoveAt(ActivityEntries.Count - 1);
+                        }
+                    }, null);
+
+                    _activityPosition = tail.Position;
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _uiContext.Post(_ => OperationMessage = $"Could not follow activity: {ex.Message}", null);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal shutdown.
+        }
+    }
+
+    private async Task ExportActivityAsync()
+    {
+        var suggested = $"agent-bridge-log-{DateTime.Now:yyyy-MM-dd-HHmm}.txt";
+        var destination = ChooseExportFile?.Invoke(suggested);
+        if (string.IsNullOrWhiteSpace(destination))
+        {
+            return;
+        }
+
+        try
+        {
+            var lines = await _logService.ExportAsync(destination, CancellationToken.None);
+            OperationMessage = $"Exported {lines} log lines to {destination}.";
+        }
+        catch (Exception ex) { OperationMessage = $"Could not export the log: {ex.Message}"; }
+    }
+
+    /// <summary>
+    /// Empties what the page is showing and carries on from here, so what
+    /// appears next is only what happens next. The log files are untouched —
+    /// this is a clean view to watch the next step in, not a way to destroy the
+    /// record of the last one, and Refresh brings that record straight back.
+    ///
+    /// Following used to have to be switched off here: the page re-read the whole
+    /// file, so the next tick refilled the list within seconds and the button
+    /// looked broken. Reading forward from where it left off means nothing old
+    /// can come back on its own, so following stays on and the cleared view fills
+    /// with the next step as it happens.
+    /// </summary>
+    private void ClearActivityView()
+    {
+        ActivityEntries.Clear();
+        OperationMessage = FollowActivity
+            ? "Activity view cleared. Only what happens from now on will appear; Refresh brings the log back."
+            : "Activity view cleared. The log files are unchanged — Refresh brings them back.";
     }
 
     private async Task TestClaudeAsync()
@@ -489,6 +748,15 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         StartMinimized = StartMinimized,
         DarkTheme = DarkTheme,
         DryRun = DryRun,
+        UseClaudeCli = UseClaudeCli,
+        UseCodexCli = UseCodexCli,
+        ClaudeCliExecutable = ClaudeCliExecutable,
+        ClaudeCliArguments = ClaudeCliArguments,
+        ClaudeCliTimeoutSeconds = ClaudeCliTimeoutSeconds,
+        AgentLogLineLimit = AgentLogLineLimit,
+        CodexCliExecutable = CodexCliExecutable,
+        CodexCliArguments = CodexCliArguments,
+        CodexCliTimeoutSeconds = CodexCliTimeoutSeconds,
     };
 
     private void LoadSettings(BridgeConfiguration value)
@@ -507,6 +775,15 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         StartMinimized = value.StartMinimized;
         DarkTheme = value.DarkTheme;
         DryRun = value.DryRun;
+        UseClaudeCli = value.UseClaudeCli;
+        UseCodexCli = value.UseCodexCli;
+        ClaudeCliExecutable = value.ClaudeCliExecutable;
+        ClaudeCliArguments = value.ClaudeCliArguments;
+        ClaudeCliTimeoutSeconds = value.ClaudeCliTimeoutSeconds;
+        AgentLogLineLimit = value.AgentLogLineLimit;
+        CodexCliExecutable = value.CodexCliExecutable;
+        CodexCliArguments = value.CodexCliArguments;
+        CodexCliTimeoutSeconds = value.CodexCliTimeoutSeconds;
     }
 
     private static string? NullIfWhiteSpace(string value) =>
@@ -517,7 +794,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     private void RaiseStatusProperties()
     {
-        foreach (var name in new[] { nameof(HasError), nameof(CanStart), nameof(CanPause), nameof(CanResume), nameof(CanRetryClaude), nameof(CanRetryCodex), nameof(CanContinueWaitingForClaude), nameof(CanContinueWaitingForCodex), nameof(CanStop), nameof(StateText), nameof(IterationText), nameof(ModeText), nameof(ModeExplanation), nameof(GeneratedText), nameof(LastActionText), nameof(LastErrorText), nameof(ClaudeStatusText), nameof(CodexStatusText), nameof(GitBranchText), nameof(GitTreeText), nameof(ClaudeFileUpdateText), nameof(CodexFileUpdateText), nameof(CycleProgress), nameof(CycleProgressText) })
+        foreach (var name in new[] { nameof(HasError), nameof(CanStart), nameof(CanPause), nameof(CanResume), nameof(CanRetryClaude), nameof(CanRetryCodex), nameof(CanContinueWaitingForClaude), nameof(CanContinueWaitingForCodex), nameof(CanStop), nameof(CanResetState), nameof(StateText), nameof(IterationText), nameof(ModeText), nameof(ModeExplanation), nameof(GeneratedText), nameof(LastActionText), nameof(LastErrorText), nameof(ClaudeStatusText), nameof(CodexStatusText), nameof(GitBranchText), nameof(GitTreeText), nameof(ClaudeFileUpdateText), nameof(CodexFileUpdateText), nameof(CycleProgress), nameof(CycleProgressText) })
             OnPropertyChanged(name);
         StartCommand.RaiseCanExecuteChanged();
         PauseCommand.RaiseCanExecuteChanged();

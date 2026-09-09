@@ -12,6 +12,16 @@ public sealed class ProjectReferenceArchitectureTests
             ["AgentBridge.Infrastructure"] = ["AgentBridge.Abstractions", "AgentBridge.Core"],
             ["AgentBridge.UIAutomation"] = ["AgentBridge.Abstractions"],
             ["AgentBridge.Fakes"] = ["AgentBridge.Abstractions"],
+            // The headless host may not reference UIAutomation. Its whole purpose
+            // is to run with no desktop — a reference would pull FlaUI and the
+            // UIA3 COM interop into a process that has to keep working while the
+            // Windows session is locked.
+            ["AgentBridge.Cli"] =
+            [
+                "AgentBridge.Abstractions",
+                "AgentBridge.Core",
+                "AgentBridge.Infrastructure",
+            ],
             ["AgentBridge.App"] =
             [
                 "AgentBridge.Abstractions",

@@ -17,6 +17,14 @@ public sealed class FakeAgentAdapterState
 
     public bool IsProcessing { get; set; }
 
+    /// <summary>
+    /// Whether receiving an instruction makes this agent busy, as a real one is.
+    /// Off by default so the tests written before it keep their existing timing;
+    /// on, it lets a test model the case where an agent works for a while and
+    /// then stops without having written its protocol file.
+    /// </summary>
+    public bool BecomesBusyOnSend { get; set; }
+
     public bool ActivateSucceeds { get; set; } = true;
 
     public bool FindConversationSucceeds { get; set; } = true;
@@ -30,6 +38,13 @@ public sealed class FakeAgentAdapterState
     public TimeSpan SendMessageDelay { get; set; } = TimeSpan.Zero;
 
     public AgentStatus Status { get; set; } = AgentStatus.Ready;
+
+    /// <summary>
+    /// Reported through <see cref="AgentBridge.Abstractions.Interfaces.IReportsRunOutcome"/>:
+    /// the last run ended too quickly to have done anything, so the orchestrator
+    /// should retry rather than call the iteration empty.
+    /// </summary>
+    public bool LastRunFailedWithoutWorking { get; set; }
 
     public List<string> SentMessages { get; } = [];
 
@@ -51,6 +66,7 @@ public sealed class FakeAgentAdapterState
         LaunchSucceeds = true;
         IsReady = true;
         IsProcessing = false;
+        BecomesBusyOnSend = false;
         ActivateSucceeds = true;
         FindConversationSucceeds = true;
         FindInputBoxSucceeds = true;

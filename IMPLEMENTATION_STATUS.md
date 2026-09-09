@@ -44,6 +44,7 @@ and `UI_AUTOMATION.md`.
 | Unit tests | Done | 38 tests in `AgentBridge.Core.Tests` |
 | Infrastructure tests | Done | 32 tests in `AgentBridge.Infrastructure.Tests` (real files, real git.exe) |
 | End-to-end simulation | Done | 8 tests in `AgentBridge.Integration.Tests`, real infra + fake adapters, multi-iteration, real disk writes |
+| Headless CLI-to-CLI mode | Done, verified live | `AgentBridge.Cli` host plus `ClaudeCliAdapter`/`CodexCliAdapter`; one live iteration ran end to end against a scratch repository. See `HEADLESS.md` |
 | Claude Desktop adapter | Implemented, canary completed | Exact active-title targeting, unique input selection, single Invoke, positive receipt verification; hardened from real canary findings |
 | ChatGPT Desktop/Codex adapter | Implemented, canary pending | Same fail-closed contract; read-only discovery verified against installed app |
 | UI Automation diagnostics | Done (basic) | `GetDiagnosticsAsync` dumps a live 3-level automation tree against the real installed apps |

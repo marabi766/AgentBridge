@@ -125,6 +125,9 @@
                             <Button Content="↻ Retry Claude" Command="{Binding RetryClaudeCommand}" automation:AutomationProperties.HelpText="Resends the current Codex instruction to Claude without resetting iteration progress." />
                             <Button Content="■ Stop" Command="{Binding StopCommand}" Foreground="{DynamicResource ErrorBrush}" />
                             <Button Content="↻ Refresh" Command="{Binding RefreshCommand}" />
+                            <Button Content="Reset state…" Command="{Binding ResetStateCommand}"
+                                    Foreground="{DynamicResource ErrorBrush}"
+                                    automation:AutomationProperties.HelpText="Discards the iteration counter and the recorded protocol-file hashes so the current files count as new again. Available while the bridge is stopped." />
                         </StackPanel>
 
                         <Border Style="{StaticResource PanelStyle}" Visibility="{Binding HasError, Converter={StaticResource BooleanToVisibility}}" BorderBrush="{DynamicResource ErrorBrush}" Background="{DynamicResource ErrorSurfaceBrush}" automation:AutomationProperties.LiveSetting="Assertive">
@@ -135,7 +138,6 @@
                                     <Button Content="Open Diagnostics" Command="{Binding NavigateCommand}" CommandParameter="Diagnostics" />
                                     <Button Content="Continue waiting for Claude" Command="{Binding ContinueWaitingForClaudeCommand}" />
                                     <Button Content="Continue waiting for Codex" Command="{Binding ContinueWaitingForCodexCommand}" />
-                                    <Button Content="Reset state…" Command="{Binding ResetStateCommand}" Foreground="{DynamicResource ErrorBrush}" />
                                 </StackPanel>
                             </StackPanel>
                         </Border>
@@ -210,15 +212,41 @@
                     <StackPanel Visibility="{Binding IsActivity, Converter={StaticResource BooleanToVisibility}}">
                         <DockPanel Margin="0,0,0,12">
                             <TextBlock Text="Activity" FontSize="20" FontWeight="SemiBold" />
-                            <Button DockPanel.Dock="Right" Content="Refresh" Command="{Binding LoadActivityCommand}" />
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
+                                <CheckBox Content="Follow" IsChecked="{Binding FollowActivity}" VerticalAlignment="Center" Margin="0,0,12,0"
+                                          automation:AutomationProperties.HelpText="Keeps reloading the newest entries. Turn it off to scroll back without the list jumping." />
+                                <Button Content="Refresh" Command="{Binding LoadActivityCommand}" />
+                                <Button Content="Export…" Command="{Binding ExportActivityCommand}"
+                                        automation:AutomationProperties.HelpText="Writes every stored log, oldest first, to one file." />
+                                <Button Content="Clear view" Command="{Binding ClearActivityCommand}"
+                                        automation:AutomationProperties.HelpText="Empties this list so the next step is easy to watch. The log files are untouched; Refresh brings them back." />
+                            </StackPanel>
                         </DockPanel>
                         <TextBlock Text="Prompt and report bodies are redacted from application logs." Foreground="{DynamicResource WarningBrush}" Margin="0,0,0,12" />
-                        <DataGrid ItemsSource="{Binding ActivityEntries}" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column" GridLinesVisibility="Horizontal" MinHeight="420">
+                        <DataGrid ItemsSource="{Binding ActivityEntries}" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column" GridLinesVisibility="Horizontal" MinHeight="420"
+                                  VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                            <DataGrid.RowStyle>
+                                <Style TargetType="DataGridRow">
+                                    <!-- A wrapped message makes rows tall and uneven, so the row has to
+                                         grow to its content rather than to a fixed line height. -->
+                                    <Setter Property="VerticalContentAlignment" Value="Top" />
+                                </Style>
+                            </DataGrid.RowStyle>
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="Local time" Binding="{Binding TimestampLocal, StringFormat={}{0:HH:mm:ss}}" Width="100" />
-                                <DataGridTextColumn Header="Severity" Binding="{Binding Level}" Width="90" />
-                                <DataGridTextColumn Header="Category" Binding="{Binding Category}" Width="180" />
-                                <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="*" />
+                                <DataGridTextColumn Header="Local time" Binding="{Binding TimestampLocal, StringFormat={}{0:HH:mm:ss}}" Width="80" />
+                                <DataGridTextColumn Header="Severity" Binding="{Binding Level}" Width="80" />
+                                <DataGridTextColumn Header="Category" Binding="{Binding Category}" Width="160" />
+                                <!-- A text column truncates at the column edge, which is what made a
+                                     streamed agent line unreadable: the interesting part is past the
+                                     cut. A template cell can wrap, so the whole line is on screen. -->
+                                <DataGridTemplateColumn Header="Message" Width="*">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding Message}" TextWrapping="Wrap" Margin="2,3"
+                                                       FontFamily="Cascadia Mono, Consolas" FontSize="11" />
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
                             </DataGrid.Columns>
                         </DataGrid>
                     </StackPanel>
@@ -269,10 +297,30 @@
                                     <TextBlock Text="Automation safety" Style="{StaticResource SectionTitle}" />
                                     <CheckBox IsChecked="{Binding DryRun}" Content="Dry Run — simulate delivery only" Margin="0,0,0,10" />
                                     <TextBlock Text="CLAUDE ACTIVE CONVERSATION TITLE" Style="{StaticResource Caption}" />
-                                    <TextBox Text="{Binding ClaudeConversationIdentifier, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,10" />
+                                    <TextBox Text="{Binding ClaudeConversationIdentifier, UpdateSourceTrigger=PropertyChanged}"
+                                             IsEnabled="{Binding UseClaudeDesktop}"
+                                             Margin="0,3,0,10" />
+                                    <TextBlock Text="HOW CLAUDE IS DRIVEN" Style="{StaticResource Caption}" />
+                                    <RadioButton GroupName="ClaudeTransport" Content="Claude Desktop window"
+                                                 IsChecked="{Binding UseClaudeDesktop}"
+                                                 Margin="0,6,0,4" />
+                                    <RadioButton GroupName="ClaudeTransport" Content="Claude CLI (claude --print)"
+                                                 IsChecked="{Binding UseClaudeCli}" Margin="0,0,0,6" />
+                                    <TextBlock Text="The CLI needs `npm install -g @anthropic-ai/claude-code` and a signed-in session. It has no window to find, so the conversation title above does not apply to it, and it keeps working while Windows is locked."
+                                               TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,10" />
                                     <TextBlock Text="CODEX ACTIVE CONVERSATION TITLE" Style="{StaticResource Caption}" />
-                                    <TextBox Text="{Binding CodexConversationIdentifier, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,10" />
-                                    <TextBlock Text="Clearing Dry Run requires both exact titles and a confirmation when settings are saved. Settings cannot be changed during an active run." TextWrapping="Wrap" Foreground="{DynamicResource WarningBrush}" />
+                                    <TextBox Text="{Binding CodexConversationIdentifier, UpdateSourceTrigger=PropertyChanged}"
+                                             IsEnabled="{Binding UseCodexDesktop}"
+                                             Margin="0,3,0,10" />
+                                    <TextBlock Text="HOW CODEX IS DRIVEN" Style="{StaticResource Caption}" />
+                                    <RadioButton GroupName="CodexTransport" Content="ChatGPT Desktop window"
+                                                 IsChecked="{Binding UseCodexDesktop}"
+                                                 Margin="0,6,0,4" />
+                                    <RadioButton GroupName="CodexTransport" Content="Codex CLI (codex exec)"
+                                                 IsChecked="{Binding UseCodexCli}" Margin="0,0,0,6" />
+                                    <TextBlock Text="The CLI needs `npm install -g @openai/codex` and a signed-in session. It has no window to find, so the conversation title above does not apply to it."
+                                               TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,10" />
+                                    <TextBlock Text="Clearing Dry Run requires a confirmation when settings are saved, and an exact conversation title for each agent still driven through its desktop window. Settings cannot be changed during an active run." TextWrapping="Wrap" Foreground="{DynamicResource WarningBrush}" />
                                 </StackPanel>
                             </Border>
                         </Grid>
@@ -300,6 +348,38 @@
                                     <CheckBox IsChecked="{Binding StartMinimized}" Content="Start minimized" Margin="0,0,0,10" />
                                     <CheckBox IsChecked="{Binding DarkTheme}" Content="Use dark theme" Margin="0,0,0,10" />
                                     <TextBlock Text="Settings are validated and written as a single transaction. A partial save cannot occur." TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" />
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Style="{StaticResource PanelStyle}">
+                                <StackPanel IsEnabled="{Binding UseClaudeCli}">
+                                    <TextBlock Text="Claude CLI" Style="{StaticResource SectionTitle}" />
+                                    <TextBlock Text="EXECUTABLE" Style="{StaticResource Caption}" />
+                                    <TextBox Text="{Binding ClaudeCliExecutable, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,10" />
+                                    <TextBlock Text="ARGUMENTS FOR ONE RUN" Style="{StaticResource Caption}" />
+                                    <TextBox Text="{Binding ClaudeCliArguments, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,6" />
+                                    <TextBlock Text="--print makes the run non-interactive; with no prompt argument the instruction is written to standard input. An unattended run has nobody to answer a permission prompt, so a run that has to ask produces no report: use --dangerously-skip-permissions if the loop must build and test on its own. Add --verbose --output-format stream-json to see Claude's progress in Activity as it happens."
+                                               TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,10" />
+                                    <TextBlock Text="RUN TIMEOUT (SECONDS)" Style="{StaticResource Caption}" />
+                                    <TextBox Text="{Binding ClaudeCliTimeoutSeconds}" Margin="0,3,0,10" />
+                                    <TextBlock Text="AGENT LOG LINE LIMIT (0 = NO LIMIT)" Style="{StaticResource Caption}" />
+                                    <TextBox Text="{Binding AgentLogLineLimit}" Margin="0,3,0,0"
+                                             automation:AutomationProperties.HelpText="Lines of one agent run written to the log before the rest is kept for diagnostics only. A run that executes a test suite can print far more than the default." />
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="1" Style="{StaticResource PanelStyle}">
+                                <StackPanel IsEnabled="{Binding UseCodexCli}">
+                                    <TextBlock Text="Codex CLI" Style="{StaticResource SectionTitle}" />
+                                    <TextBlock Text="EXECUTABLE" Style="{StaticResource Caption}" />
+                                    <TextBox Text="{Binding CodexCliExecutable, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,10" />
+                                    <TextBlock Text="ARGUMENTS FOR ONE RUN" Style="{StaticResource Caption}" />
+                                    <TextBox Text="{Binding CodexCliArguments, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,6" />
+                                    <TextBlock Text="The trailing &quot;-&quot; is what makes Codex read the instruction from standard input, which is what lets a long multi-line prompt through without quoting. Keep it."
+                                               TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,10" />
+                                    <TextBlock Text="RUN TIMEOUT (SECONDS)" Style="{StaticResource Caption}" />
+                                    <TextBox Text="{Binding CodexCliTimeoutSeconds}" Margin="0,3,0,0" />
                                 </StackPanel>
                             </Border>
                         </Grid>
