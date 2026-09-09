@@ -39,6 +39,13 @@ public sealed class FakeAgentAdapterState
 
     public AgentStatus Status { get; set; } = AgentStatus.Ready;
 
+    /// <summary>
+    /// Reported through <see cref="AgentBridge.Abstractions.Interfaces.IReportsRunOutcome"/>:
+    /// the last run ended too quickly to have done anything, so the orchestrator
+    /// should retry rather than call the iteration empty.
+    /// </summary>
+    public bool LastRunFailedWithoutWorking { get; set; }
+
     public List<string> SentMessages { get; } = [];
 
     public int IsApplicationRunningCallCount { get; internal set; }

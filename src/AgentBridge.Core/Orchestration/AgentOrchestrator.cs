@@ -73,6 +73,8 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
     // the count only ever describes one stuck iteration.
     private int _claudeQuotaResends;
     private int _codexQuotaResends;
+    private int _claudeFailedRunResends;
+    private int _codexFailedRunResends;
 
     public AgentOrchestrator(
         IStateStore stateStore,
@@ -613,6 +615,7 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             // Claude delivered, so whatever allowance trouble preceded this is
             // over; the next stuck iteration starts its own count.
             _claudeQuotaResends = 0;
+            _claudeFailedRunResends = 0;
             _lastClaudeReportUpdateUtc = e.DetectedAtUtc;
             _lastAgent = AgentRole.Claude;
             _lastAction = $"Claude report detected (iteration {_currentIteration})";
@@ -677,6 +680,7 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
 
             _lastCodexPromptHash = e.ContentHashSha256;
             _codexQuotaResends = 0;
+            _codexFailedRunResends = 0;
             _lastCodexPromptUpdateUtc = e.DetectedAtUtc;
             _lastAgent = AgentRole.Codex;
             _lastAction = $"Codex prompt detected (iteration {_currentIteration})";
@@ -883,6 +887,16 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
 
                 if (everObservedWorking)
                 {
+                    // An agent that stopped too soon to have worked did not have
+                    // an empty iteration — it never got started. Loop round so the
+                    // retry is watched the same way the first attempt was;
+                    // resending with nothing observing it is how a retry silently
+                    // becomes a stall.
+                    if (await ResendAfterAFailedRunAsync(role, cancellationToken).ConfigureAwait(false))
+                    {
+                        continue;
+                    }
+
                     await FailIfTheAgentProducedNothingAsync(role, cancellationToken).ConfigureAwait(false);
                 }
 
@@ -957,6 +971,92 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
     /// two in the morning.
     /// </summary>
     /// <returns>True when a new delivery was made and is worth watching.</returns>
+    // Far smaller than the allowance budget, and deliberately. An allowance
+    // refusal states when it lifts, so waiting it out is informed; this is a
+    // guess that the trouble has passed. Two attempts cover the transient case
+    // without hammering a wall that is not going to move.
+    private const int MaximumFailedRunResends = 2;
+
+    // Long enough for the state behind an instant refusal — a stale token, a
+    // connection that dropped — to have moved on, short enough that an unattended
+    // run does not lose its night to it.
+    private static readonly TimeSpan FailedRunRetryDelay = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// Resends the current instruction when the agent stopped so quickly that it
+    /// cannot have started the work.
+    ///
+    /// A real run against F:\Rasta was ended by exactly this: the moment an
+    /// allowance reset, the first invocation came back "403 Request not allowed"
+    /// in under a second, from a cached authentication state that had not caught
+    /// up. Nothing was wrong by the time anyone looked, but the loop had already
+    /// stopped for the night.
+    ///
+    /// Called from the completion probe with no lock held, so that returning true
+    /// lets the probe loop round and watch the retry. A retry nothing is watching
+    /// is how one silently becomes a stall.
+    /// </summary>
+    private async Task<bool> ResendAfterAFailedRunAsync(AgentRole role, CancellationToken cancellationToken)
+    {
+        var adapter = _agentAdapterProvider.GetAdapter(role);
+        if (adapter is not IReportsRunOutcome { LastRunFailedWithoutWorking: true })
+        {
+            return false;
+        }
+
+        ref var resends = ref (role == AgentRole.Claude ? ref _claudeFailedRunResends : ref _codexFailedRunResends);
+        if (resends >= MaximumFailedRunResends)
+        {
+            _logger.LogWarning(
+                "{Agent} has now stopped before starting {Attempts} times running on iteration {Iteration}. "
+                + "Treating it as a real failure rather than resending again.",
+                role, resends, _currentIteration);
+            return false;
+        }
+
+        resends++;
+        _logger.LogInformation(
+            "{Agent} stopped before it could do any work; resending the iteration {Iteration} instruction "
+            + "in {Delay}s (attempt {Attempt} of {Max}).",
+            role, _currentIteration, FailedRunRetryDelay.TotalSeconds, resends, MaximumFailedRunResends);
+        _lastAction = $"{role} stopped before starting; retrying iteration {_currentIteration} shortly";
+        PublishStatus();
+
+        await Task.Delay(FailedRunRetryDelay, cancellationToken).ConfigureAwait(false);
+
+        await _actionLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            // The wait is long enough for the picture to have changed underneath
+            // it: the file may have arrived late, or the operator may have stopped
+            // the run. Either way there is nothing left to retry.
+            var waitingState = role == AgentRole.Claude
+                ? BridgeState.WaitingForClaudeReport
+                : BridgeState.WaitingForCodexPrompt;
+            if (_stateMachine.Current != waitingState)
+            {
+                return false;
+            }
+
+            if (role == AgentRole.Claude)
+            {
+                Transition(BridgeState.WaitingForClaude, $"Retrying Claude instruction for iteration {_currentIteration}");
+                await InvokeClaudeAsync(cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                Transition(BridgeState.WaitingForCodex, $"Retrying Codex instruction for iteration {_currentIteration}");
+                await InvokeCodexAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            return true;
+        }
+        finally
+        {
+            _actionLock.Release();
+        }
+    }
+
     private async Task<bool> ResendAfterTheAllowanceResetAsync(AgentRole role, CancellationToken cancellationToken)
     {
         await Task.Delay(FileArrivalGrace, cancellationToken).ConfigureAwait(false);

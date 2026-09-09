@@ -3,7 +3,7 @@ using AgentBridge.Abstractions.Models;
 
 namespace AgentBridge.Fakes;
 
-public abstract class FakeAgentAdapterBase(string name, AgentRole role) : IAgentAdapter
+public abstract class FakeAgentAdapterBase(string name, AgentRole role) : IAgentAdapter, IReportsRunOutcome
 {
     public string Name { get; } = name;
 
@@ -81,6 +81,8 @@ public abstract class FakeAgentAdapterBase(string name, AgentRole role) : IAgent
     }
 
     public Task<AgentStatus> GetStatusAsync(CancellationToken cancellationToken) => Task.FromResult(State.Status);
+
+    public bool LastRunFailedWithoutWorking => State.LastRunFailedWithoutWorking;
 
     public Task<string> GetDiagnosticsAsync(CancellationToken cancellationToken) => Task.FromResult(
         $"Fake adapter '{Name}' ({Role}): Running={State.IsApplicationRunning}, Ready={State.IsReady}, " +

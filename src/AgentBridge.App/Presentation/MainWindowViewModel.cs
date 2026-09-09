@@ -46,6 +46,11 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private int _setupStep = 1;
     private string _setupValidation = "No project validation has run yet.";
 
+    // Follows the log while the Activity page is open. Off by default would make
+    // the page lie by omission during a live run: it would show the moment it was
+    // opened and nothing after, with no sign that it had stopped keeping up.
+    private bool _followActivity = true;
+
     public MainWindowViewModel(
         IOrchestratorService orchestrator,
         ISettingsService settingsService,
@@ -90,6 +95,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         SetupNextCommand = new AsyncCommand(SetupNextAsync);
         SetupBackCommand = new RelayCommand(_ => SetupStep--, _ => SetupStep > 1);
         ResetStateCommand = new AsyncCommand(ResetStateAsync, () => CanResetState);
+        ExportActivityCommand = new AsyncCommand(ExportActivityAsync);
+        ClearActivityCommand = new AsyncCommand(ClearActivityAsync);
         NavigateCommand = new RelayCommand(p => CurrentPage = p?.ToString() ?? "Dashboard");
     }
 
@@ -110,6 +117,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public AsyncCommand SetupNextCommand { get; }
     public RelayCommand SetupBackCommand { get; }
     public AsyncCommand ResetStateCommand { get; }
+    public AsyncCommand ExportActivityCommand { get; }
+    public AsyncCommand ClearActivityCommand { get; }
     public RelayCommand NavigateCommand { get; }
     public ObservableCollection<LogEntry> ActivityEntries { get; } = [];
     public IReadOnlyList<BridgeStartPointOption> StartPointOptions { get; } =
@@ -127,6 +136,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public Func<bool>? ConfirmReset { get; set; }
     public Func<bool>? ConfirmLiveEnable { get; set; }
     public Func<string?>? SelectProjectFolder { get; set; }
+    public Func<string, string?>? ChooseExportFile { get; set; }
+    public Func<bool>? ConfirmClearActivity { get; set; }
     public Action<bool>? ThemeChanged { get; set; }
     public Action<bool>? NotificationsChanged { get; set; }
 
@@ -236,6 +247,13 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public bool AutoStart { get => _autoStart; set => SetProperty(ref _autoStart, value); }
     public bool StartMinimized { get => _startMinimized; set => SetProperty(ref _startMinimized, value); }
     public bool DryRun { get => _dryRun; set => SetProperty(ref _dryRun, value); }
+
+    /// <summary>
+    /// Whether the Activity page keeps reloading itself. Turning it off is what
+    /// makes the list readable while scrolling back through it — a reload jumps
+    /// to the newest entry, which fights anyone reading an older one.
+    /// </summary>
+    public bool FollowActivity { get => _followActivity; set => SetProperty(ref _followActivity, value); }
 
     /// <summary>
     /// Which way Claude is driven: its command line when true, the Claude
@@ -383,6 +401,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             }
             await LoadActivityAsync();
             _ = RefreshStatusPeriodicallyAsync(_statusRefreshCts.Token);
+            _ = FollowActivityPeriodicallyAsync(_statusRefreshCts.Token);
         }
         catch (Exception ex) { OperationMessage = $"Startup failed safely: {ex.Message}"; }
     }
@@ -516,6 +535,94 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             foreach (var entry in entries.Reverse()) ActivityEntries.Add(entry);
         }
         catch (Exception ex) { OperationMessage = $"Could not read activity: {ex.Message}"; }
+    }
+
+    /// <summary>
+    /// Reloads the Activity list while that page is open and following is on.
+    /// Runs on its own cadence rather than with the status poll: the log is read
+    /// from disk and there is no reason to pay for that on the other pages.
+    /// </summary>
+    private async Task FollowActivityPeriodicallyAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
+            while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+            {
+                if (!IsActivity || !FollowActivity)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    var entries = await _logService.TailAsync(250, cancellationToken).ConfigureAwait(false);
+                    _uiContext.Post(_ =>
+                    {
+                        // Rebuilt only when it actually changed. Replacing an
+                        // identical list every three seconds would reset the
+                        // selection and scroll position of anyone reading it.
+                        if (ActivityEntries.Count == entries.Count
+                            && (entries.Count == 0
+                                || ActivityEntries[0].TimestampUtc == entries[^1].TimestampUtc))
+                        {
+                            return;
+                        }
+
+                        ActivityEntries.Clear();
+                        foreach (var entry in entries.Reverse()) ActivityEntries.Add(entry);
+                    }, null);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _uiContext.Post(_ => OperationMessage = $"Could not follow activity: {ex.Message}", null);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal shutdown.
+        }
+    }
+
+    private async Task ExportActivityAsync()
+    {
+        var suggested = $"agent-bridge-log-{DateTime.Now:yyyy-MM-dd-HHmm}.txt";
+        var destination = ChooseExportFile?.Invoke(suggested);
+        if (string.IsNullOrWhiteSpace(destination))
+        {
+            return;
+        }
+
+        try
+        {
+            var lines = await _logService.ExportAsync(destination, CancellationToken.None);
+            OperationMessage = $"Exported {lines} log lines to {destination}.";
+        }
+        catch (Exception ex) { OperationMessage = $"Could not export the log: {ex.Message}"; }
+    }
+
+    private async Task ClearActivityAsync()
+    {
+        if (ConfirmClearActivity?.Invoke() != true) return;
+
+        try
+        {
+            var result = await _logService.ClearAsync(CancellationToken.None);
+            await LoadActivityAsync();
+
+            // Saying "cleared" when a file is still on disk would be found out
+            // later, by which time the operator has stopped believing the screen.
+            OperationMessage = result.FilesInUse.Count == 0
+                ? $"Deleted {result.FilesDeleted} log file(s)."
+                : $"Deleted {result.FilesDeleted} log file(s). {string.Join(", ", result.FilesInUse)} "
+                  + "is still being written and stays until the application closes.";
+        }
+        catch (Exception ex) { OperationMessage = $"Could not clear the log: {ex.Message}"; }
     }
 
     private async Task TestClaudeAsync()

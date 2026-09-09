@@ -212,15 +212,41 @@
                     <StackPanel Visibility="{Binding IsActivity, Converter={StaticResource BooleanToVisibility}}">
                         <DockPanel Margin="0,0,0,12">
                             <TextBlock Text="Activity" FontSize="20" FontWeight="SemiBold" />
-                            <Button DockPanel.Dock="Right" Content="Refresh" Command="{Binding LoadActivityCommand}" />
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
+                                <CheckBox Content="Follow" IsChecked="{Binding FollowActivity}" VerticalAlignment="Center" Margin="0,0,12,0"
+                                          automation:AutomationProperties.HelpText="Keeps reloading the newest entries. Turn it off to scroll back without the list jumping." />
+                                <Button Content="Refresh" Command="{Binding LoadActivityCommand}" />
+                                <Button Content="Export…" Command="{Binding ExportActivityCommand}"
+                                        automation:AutomationProperties.HelpText="Writes every stored log, oldest first, to one file." />
+                                <Button Content="Clear…" Command="{Binding ClearActivityCommand}" Foreground="{DynamicResource ErrorBrush}"
+                                        automation:AutomationProperties.HelpText="Deletes the stored log files. Today's log is in use and is left in place." />
+                            </StackPanel>
                         </DockPanel>
                         <TextBlock Text="Prompt and report bodies are redacted from application logs." Foreground="{DynamicResource WarningBrush}" Margin="0,0,0,12" />
-                        <DataGrid ItemsSource="{Binding ActivityEntries}" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column" GridLinesVisibility="Horizontal" MinHeight="420">
+                        <DataGrid ItemsSource="{Binding ActivityEntries}" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column" GridLinesVisibility="Horizontal" MinHeight="420"
+                                  VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                            <DataGrid.RowStyle>
+                                <Style TargetType="DataGridRow">
+                                    <!-- A wrapped message makes rows tall and uneven, so the row has to
+                                         grow to its content rather than to a fixed line height. -->
+                                    <Setter Property="VerticalContentAlignment" Value="Top" />
+                                </Style>
+                            </DataGrid.RowStyle>
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="Local time" Binding="{Binding TimestampLocal, StringFormat={}{0:HH:mm:ss}}" Width="100" />
-                                <DataGridTextColumn Header="Severity" Binding="{Binding Level}" Width="90" />
-                                <DataGridTextColumn Header="Category" Binding="{Binding Category}" Width="180" />
-                                <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="*" />
+                                <DataGridTextColumn Header="Local time" Binding="{Binding TimestampLocal, StringFormat={}{0:HH:mm:ss}}" Width="80" />
+                                <DataGridTextColumn Header="Severity" Binding="{Binding Level}" Width="80" />
+                                <DataGridTextColumn Header="Category" Binding="{Binding Category}" Width="160" />
+                                <!-- A text column truncates at the column edge, which is what made a
+                                     streamed agent line unreadable: the interesting part is past the
+                                     cut. A template cell can wrap, so the whole line is on screen. -->
+                                <DataGridTemplateColumn Header="Message" Width="*">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding Message}" TextWrapping="Wrap" Margin="2,3"
+                                                       FontFamily="Cascadia Mono, Consolas" FontSize="11" />
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
                             </DataGrid.Columns>
                         </DataGrid>
                     </StackPanel>

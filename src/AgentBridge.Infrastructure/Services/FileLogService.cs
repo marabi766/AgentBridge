@@ -91,4 +91,80 @@ public sealed partial class FileLogService(string logsDirectory) : ILogService
 
         return result;
     }
+
+    /// <summary>
+    /// Concatenates every stored log into one file, oldest day first, each line
+    /// prefixed with the day it came from so the joined file is still readable.
+    /// Reading uses the same sharing mode as the tail so today's log, which the
+    /// writer holds open, is included rather than skipped.
+    /// </summary>
+    public async Task<int> ExportAsync(string destinationPath, CancellationToken cancellationToken)
+    {
+        var written = 0;
+        var directory = Path.GetDirectoryName(destinationPath);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        await using var output = new StreamWriter(destinationPath, append: false);
+        await output.WriteLineAsync(
+            $"# Agent Bridge log export, written {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz}").ConfigureAwait(false);
+
+        if (!Directory.Exists(logsDirectory))
+        {
+            return written;
+        }
+
+        foreach (var file in Directory.EnumerateFiles(logsDirectory, "*.log").OrderBy(f => f, StringComparer.Ordinal))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await output.WriteLineAsync().ConfigureAwait(false);
+            await output.WriteLineAsync($"# ---- {Path.GetFileName(file)} ----").ConfigureAwait(false);
+
+            // FileShare.ReadWrite because the writer still owns today's file.
+            using var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var reader = new StreamReader(stream);
+            while (await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false) is { } line)
+            {
+                await output.WriteLineAsync(line).ConfigureAwait(false);
+                written++;
+            }
+        }
+
+        return written;
+    }
+
+    public Task<LogClearResult> ClearAsync(CancellationToken cancellationToken)
+    {
+        var deleted = 0;
+        var inUse = new List<string>();
+
+        if (!Directory.Exists(logsDirectory))
+        {
+            return Task.FromResult(new LogClearResult { FilesDeleted = 0, FilesInUse = inUse });
+        }
+
+        foreach (var file in Directory.EnumerateFiles(logsDirectory, "*.log"))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                File.Delete(file);
+                deleted++;
+            }
+            catch (IOException)
+            {
+                // The day being written to is held open by the logger. Say so
+                // rather than reporting a deletion that did not happen.
+                inUse.Add(Path.GetFileName(file));
+            }
+            catch (UnauthorizedAccessException)
+            {
+                inUse.Add(Path.GetFileName(file));
+            }
+        }
+
+        return Task.FromResult(new LogClearResult { FilesDeleted = deleted, FilesInUse = inUse });
+    }
 }

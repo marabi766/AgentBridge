@@ -39,8 +39,18 @@ public sealed record CommandLineInvocation
 /// has to be found and focused. Here there is no window, so they succeed
 /// immediately — that is the point of this adapter, not an omission.
 /// </summary>
-public abstract class CommandLineAgentAdapter : IAgentAdapter, IDisposable
+public abstract class CommandLineAgentAdapter : IAgentAdapter, IReportsRunOutcome, IDisposable
 {
+    /// <summary>
+    /// Under this, a failed run cannot have done the work. These agents read a
+    /// repository, edit files and write a report; none of that happens in a few
+    /// seconds. The window is generous rather than tight because the cost of
+    /// guessing wrong in each direction is not symmetric: retrying a genuine
+    /// failure costs one wasted invocation, while stopping an overnight run for
+    /// a refusal that fixed itself in a second costs the night.
+    /// </summary>
+    private static readonly TimeSpan CannotHaveWorkedWithin = TimeSpan.FromSeconds(60);
+
     private readonly IConfigurationService _configurationService;
     private readonly ILogger _logger;
     private readonly SemaphoreSlim _runLock = new(1, 1);
@@ -49,6 +59,12 @@ public abstract class CommandLineAgentAdapter : IAgentAdapter, IDisposable
     private Task<int>? _runCompletion;
     private string _lastOutput = string.Empty;
     private int _disposed;
+
+    // Set when a run ends badly and too soon to have done anything. Read by the
+    // orchestrator to tell a transient refusal from a real empty iteration.
+    // Written by the observing task and read from the orchestration loop, so it
+    // is volatile rather than plain.
+    private volatile bool _lastRunFailedWithoutWorking;
 
     // When this agent said it would have allowance again. Kept across runs on
     // purpose: the run that hit the limit has already exited by the time anyone
@@ -72,6 +88,14 @@ public abstract class CommandLineAgentAdapter : IAgentAdapter, IDisposable
     /// anything the desktop path can observe — so a live run is allowed.
     /// </summary>
     public bool SupportsRealMessageDelivery => true;
+
+    /// <summary>
+    /// True only about a run that has finished. A run still in flight has not
+    /// failed at anything yet, and saying otherwise would have the orchestrator
+    /// resend underneath an agent that is still working.
+    /// </summary>
+    public bool LastRunFailedWithoutWorking =>
+        _lastRunFailedWithoutWorking && _run is not { HasExited: false };
 
     /// <summary>Reads this agent's command line settings out of the configuration.</summary>
     protected abstract CommandLineInvocation ReadInvocation(BridgeConfiguration configuration);
@@ -158,6 +182,10 @@ public abstract class CommandLineAgentAdapter : IAgentAdapter, IDisposable
 
             _run = process;
             _lastOutput = string.Empty;
+            // Only ever describes the run that has finished. Leaving the previous
+            // verdict standing would let one transient failure justify retrying
+            // the next iteration too.
+            _lastRunFailedWithoutWorking = false;
             _runCompletion = ObserveRunAsync(process, invocation.TimeoutSeconds);
 
             // Writing the instruction and closing the stream is what starts the
@@ -308,6 +336,7 @@ public abstract class CommandLineAgentAdapter : IAgentAdapter, IDisposable
     /// </summary>
     private async Task<int> ObserveRunAsync(Process process, int timeoutSeconds)
     {
+        var startedAt = DateTimeOffset.UtcNow;
         try
         {
             var transcript = new Transcript(this, process.Id);
@@ -339,9 +368,25 @@ public abstract class CommandLineAgentAdapter : IAgentAdapter, IDisposable
             }
             else
             {
+                var lasted = DateTimeOffset.UtcNow - startedAt;
+
+                // An exhausted allowance already reports itself, and far better:
+                // it knows when it lifts, where this only knows the run was too
+                // short to have worked. Claiming it here as well would start a
+                // blind retry against a wall that has hours left on it.
+                _lastRunFailedWithoutWorking = lasted < CannotHaveWorkedWithin && !QuotaExhausted;
+
                 _logger.LogWarning(
-                    "{Agent} run (pid {Pid}) exited with code {ExitCode}. Output tail: {Output}",
-                    Name, process.Id, exitCode, Tail(_lastOutput, 400));
+                    "{Agent} run (pid {Pid}) exited with code {ExitCode} after {Seconds:F1}s. Output tail: {Output}",
+                    Name, process.Id, exitCode, lasted.TotalSeconds, Tail(_lastOutput, 400));
+
+                if (_lastRunFailedWithoutWorking)
+                {
+                    _logger.LogWarning(
+                        "{Agent} stopped after {Seconds:F1}s, too soon to have done the work, so nothing it was "
+                        + "asked to do was started. Treating this as a transient failure rather than an empty iteration.",
+                        Name, lasted.TotalSeconds);
+                }
             }
 
             return exitCode;

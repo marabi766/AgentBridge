@@ -17,11 +17,28 @@ public sealed class AgentQuotaSignalTests
         """{"is_error":true,"num_turns":65,"subtype":"success","api_error_status":429,"result":"You've hit your session limit · resets 2:20pm (Asia/Tehran)","type":"result","duration_ms":687637}""";
 
     [Fact]
-    public void TheStructuredRefusalIsRecognisedWithItsExactReset()
+    public void TheStructuredRefusalIsRecognised()
     {
-        Assert.True(AgentQuotaSignal.TryDetect(RealRateLimitEvent, out var announced));
+        // The line exactly as it was printed. Its reset has long since passed, so
+        // this asserts only what stays true forever: that the refusal is seen.
+        // When it lifts is the next test's business.
+        Assert.True(AgentQuotaSignal.TryDetect(RealRateLimitEvent, out _));
+    }
+
+    [Fact]
+    public void TheStructuredRefusalCarriesItsExactReset()
+    {
+        // Same shape as the real line, with a reset that is still ahead. Pinning
+        // the original epoch here made the test pass until that moment arrived
+        // and fail every run afterwards — a clock is not a fixture.
+        var resetsAt = DateTimeOffset.UtcNow.AddHours(4).ToUnixTimeSeconds();
+        var line =
+            """{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":"""
+            + resetsAt + ""","rateLimitType":"five_hour"}}""";
+
+        Assert.True(AgentQuotaSignal.TryDetect(line, out var announced));
         Assert.NotNull(announced);
-        Assert.Equal(1788951000, announced!.Value.ToUnixTimeSeconds());
+        Assert.Equal(resetsAt, announced!.Value.ToUnixTimeSeconds());
     }
 
     [Fact]

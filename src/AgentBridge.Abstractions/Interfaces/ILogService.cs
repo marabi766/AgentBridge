@@ -9,4 +9,19 @@ public interface ILogService
     Task<IReadOnlyList<LogEntry>> ReadLogAsync(DateOnly date, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<LogEntry>> TailAsync(int maxEntries, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Writes every stored log, oldest first, to <paramref name="destinationPath"/>
+    /// as one file. The whole of it rather than what the screen is showing: the
+    /// reason to export a log is to hand it to someone who needs what scrolled
+    /// past. Returns how many entries were written.
+    /// </summary>
+    Task<int> ExportAsync(string destinationPath, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Deletes the stored log files. The file currently being written cannot be
+    /// removed while the application holds it open, so the result says what was
+    /// actually deleted and what was left.
+    /// </summary>
+    Task<LogClearResult> ClearAsync(CancellationToken cancellationToken);
 }
