@@ -72,6 +72,11 @@ public abstract class FakeAgentAdapterBase(string name, AgentRole role) : IAgent
         }
 
         State.SentMessages.Add(message);
+        if (State.BecomesBusyOnSend)
+        {
+            State.IsProcessing = true;
+        }
+
         return true;
     }
 

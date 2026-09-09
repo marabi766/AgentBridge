@@ -34,6 +34,11 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
     // delivery has to be allowed to outlast their sum, or it can never finish.
     private static readonly TimeSpan TypicalDeliveryTimeout = TimeSpan.FromSeconds(180);
 
+    // After an agent stops and its protocol file has been rechecked, how long a
+    // file that is genuinely on its way is given to arrive before the iteration
+    // is called empty.
+    private static readonly TimeSpan FileArrivalGrace = TimeSpan.FromSeconds(5);
+
     private readonly SemaphoreSlim _actionLock = new(1, 1);
     private readonly BridgeStateMachine _stateMachine = new();
 
@@ -63,6 +68,11 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
     private AgentStatus _lastCodexAgentStatus = AgentStatus.Unknown;
     private int _claudeCompletionProbeActive;
     private int _codexCompletionProbeActive;
+    // How many times in a row an exhausted allowance has been waited out and the
+    // instruction resent, per role. Reset once the agent delivers its file, so
+    // the count only ever describes one stuck iteration.
+    private int _claudeQuotaResends;
+    private int _codexQuotaResends;
 
     public AgentOrchestrator(
         IStateStore stateStore,
@@ -600,6 +610,9 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
 
             _currentIteration = nextIteration;
             _lastClaudeReportHash = e.ContentHashSha256;
+            // Claude delivered, so whatever allowance trouble preceded this is
+            // over; the next stuck iteration starts its own count.
+            _claudeQuotaResends = 0;
             _lastClaudeReportUpdateUtc = e.DetectedAtUtc;
             _lastAgent = AgentRole.Claude;
             _lastAction = $"Claude report detected (iteration {_currentIteration})";
@@ -663,6 +676,7 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             }
 
             _lastCodexPromptHash = e.ContentHashSha256;
+            _codexQuotaResends = 0;
             _lastCodexPromptUpdateUtc = e.DetectedAtUtc;
             _lastAgent = AgentRole.Codex;
             _lastAction = $"Codex prompt detected (iteration {_currentIteration})";
@@ -736,8 +750,8 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
         _logger.LogInformation(isWaitingForQuota
             ? "Deferring {Agent} protocol file: no allowance left; waiting for the automatic reset."
             : !isProcessing
-                ? "Deferring {Agent} protocol file: the desktop agent status is {Status}, so idle cannot be verified."
-                : "Deferring {Agent} protocol file: the desktop agent is still processing.", role, status);
+                ? "Deferring {Agent} protocol file: its status is {Status}, so idle cannot be verified."
+                : "Deferring {Agent} protocol file: the agent is still processing.", role, status);
         return true;
     }
 
@@ -788,38 +802,92 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
     {
         try
         {
+            // One pass per delivery being watched. A resend after an exhausted
+            // allowance is a new delivery, and this probe goes round again to
+            // watch it: handing off to a fresh probe cannot work, because this one
+            // still holds the flag that stops two from running at once, so the
+            // resent run would go unwatched and the wait would never end.
             while (true)
             {
-                var processing = await adapter.IsProcessingAsync(cancellationToken).ConfigureAwait(false);
-                var status = processing
-                    ? AgentStatus.Busy
-                    : await adapter.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-                var waitingForQuota = status == AgentStatus.RateLimited;
-                var statusIsIndeterminate = status is not AgentStatus.Ready;
-                if (!processing && !waitingForQuota && !statusIsIndeterminate)
+                // Whether this pass ever actually saw the agent working. It is the
+                // difference between "finished without doing its part" and "has not
+                // started yet", and only the first is a fault. A desktop agent that
+                // has not yet rendered its Stop control looks idle for a moment
+                // after an instruction lands, and treating that as a failed
+                // iteration would end runs that were about to succeed.
+                var everObservedWorking = false;
+
+                // Whether this pass sat out an exhausted allowance. An agent that
+                // was refused produced nothing for a reason that fixes itself, so
+                // the run resends once it is back rather than ending.
+                var everWaitedForQuota = false;
+                var announcedTheQuotaWait = false;
+
+                while (true)
                 {
+                    var processing = await adapter.IsProcessingAsync(cancellationToken).ConfigureAwait(false);
+                    var status = processing
+                        ? AgentStatus.Busy
+                        : await adapter.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+                    var waitingForQuota = status == AgentStatus.RateLimited;
+                    var statusIsIndeterminate = status is not AgentStatus.Ready;
+                    if (!processing && !waitingForQuota && !statusIsIndeterminate)
+                    {
+                        break;
+                    }
+
+                    everObservedWorking |= processing;
+                    everWaitedForQuota |= waitingForQuota;
+
+                    if (waitingForQuota && !announcedTheQuotaWait)
+                    {
+                        announcedTheQuotaWait = true;
+                        _logger.LogWarning("{Agent} has no allowance left; the run waits for its reset.", role);
+                        await NotifyAsync(
+                            $"Agent Bridge — {role} is out of allowance",
+                            $"{role} has nothing left to spend. The run is paused and resumes by itself once the "
+                            + "allowance resets; nothing needs to be restarted.",
+                            NotificationLevel.Warning,
+                            cancellationToken).ConfigureAwait(false);
+                    }
+
+                    if (role == AgentRole.Claude)
+                    {
+                        _lastClaudeAgentStatus = status;
+                    }
+                    else
+                    {
+                        _lastCodexAgentStatus = status;
+                    }
+                    _lastAction = waitingForQuota
+                        ? $"{role} has no allowance left; waiting for the automatic reset"
+                        : !processing
+                            ? $"{role} status could not be verified; waiting before file recheck"
+                        : $"{role} resumed and is processing";
+                    PublishStatus();
+                    await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
+                }
+
+                _logger.LogInformation("{Agent} processing finished; rechecking its protocol file.", role);
+                await watcher.CheckNowAsync(cancellationToken).ConfigureAwait(false);
+
+                if (everWaitedForQuota)
+                {
+                    if (await ResendAfterTheAllowanceResetAsync(role, cancellationToken).ConfigureAwait(false))
+                    {
+                        continue;
+                    }
+
                     break;
                 }
 
-                if (role == AgentRole.Claude)
+                if (everObservedWorking)
                 {
-                    _lastClaudeAgentStatus = status;
+                    await FailIfTheAgentProducedNothingAsync(role, cancellationToken).ConfigureAwait(false);
                 }
-                else
-                {
-                    _lastCodexAgentStatus = status;
-                }
-                _lastAction = waitingForQuota
-                    ? $"{role} has no allowance left; waiting for the automatic reset"
-                    : !processing
-                        ? $"{role} status could not be verified; waiting before file recheck"
-                    : $"{role} resumed and is processing";
-                PublishStatus();
-                await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
-            }
 
-            _logger.LogInformation("{Agent} processing finished; rechecking its protocol file.", role);
-            await watcher.CheckNowAsync(cancellationToken).ConfigureAwait(false);
+                break;
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -839,6 +907,163 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             {
                 Interlocked.Exchange(ref _codexCompletionProbeActive, 0);
             }
+        }
+    }
+
+    /// <summary>
+    /// Starts watching the agent an instruction was just delivered to, so that
+    /// its finishing is noticed whether or not it writes anything. The existing
+    /// probes only start once a protocol file has already appeared, which is
+    /// exactly the case that cannot happen when an agent produces nothing.
+    /// </summary>
+    private void StartCompletionWatchdog(AgentRole role, IAgentAdapter adapter)
+    {
+        if (_configuration.DryRun)
+        {
+            return;
+        }
+
+        var watcher = role == AgentRole.Claude ? _claudeWatcher : _codexWatcher;
+        if (watcher is null)
+        {
+            return;
+        }
+
+        ref var activeProbe = ref (role == AgentRole.Claude
+            ? ref _claudeCompletionProbeActive
+            : ref _codexCompletionProbeActive);
+        if (Interlocked.Exchange(ref activeProbe, 1) == 0)
+        {
+            // The run's own token, not the caller's: this outlives the file event
+            // that started the iteration, and only a stop should end it.
+            _ = WaitForAgentCompletionAndRecheckAsync(
+                role, adapter, watcher, _runCts?.Token ?? CancellationToken.None);
+        }
+    }
+
+    // An allowance that resets and is immediately spent again would otherwise
+    // resend forever. Five attempts is enough to cross a normal reset window and
+    // few enough that a genuinely exhausted account stops instead of looping.
+    private const int MaximumQuotaResends = 5;
+
+    /// <summary>
+    /// Resends the instruction an agent never got to act on because it had no
+    /// allowance left.
+    ///
+    /// The refused run exited having written nothing, so there is no file coming
+    /// and nothing to wait for — but the cause fixes itself, which is exactly the
+    /// case that should not end a run. Waiting out the reset and sending the same
+    /// instruction again is what makes an overnight run survive a limit it hit at
+    /// two in the morning.
+    /// </summary>
+    /// <returns>True when a new delivery was made and is worth watching.</returns>
+    private async Task<bool> ResendAfterTheAllowanceResetAsync(AgentRole role, CancellationToken cancellationToken)
+    {
+        await Task.Delay(FileArrivalGrace, cancellationToken).ConfigureAwait(false);
+
+        await _actionLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var waitingState = role == AgentRole.Claude
+                ? BridgeState.WaitingForClaudeReport
+                : BridgeState.WaitingForCodexPrompt;
+
+            // The agent did deliver after all, or the operator intervened.
+            if (_stateMachine.Current != waitingState)
+            {
+                return false;
+            }
+
+            ref var resends = ref (role == AgentRole.Claude ? ref _claudeQuotaResends : ref _codexQuotaResends);
+            if (resends >= MaximumQuotaResends)
+            {
+                StopRuntimeResources();
+                SetError(
+                    $"{role} ran out of allowance {resends} times in a row on iteration {_currentIteration} and "
+                    + "still could not do the work. The run is stopped rather than resending again.");
+                Transition(BridgeState.Error, _lastError!);
+                await PersistStateAsync(cancellationToken).ConfigureAwait(false);
+                await NotifyAsync(
+                    $"Agent Bridge — {role} is still out of allowance", _lastError!,
+                    NotificationLevel.Error, cancellationToken).ConfigureAwait(false);
+                return false;
+            }
+
+            resends++;
+            _logger.LogInformation(
+                "{Agent} allowance has reset; resending the iteration {Iteration} instruction (attempt {Attempt}).",
+                role, _currentIteration, resends);
+            await NotifyAsync(
+                $"Agent Bridge — {role} is back",
+                $"The allowance reset. Resending the iteration {_currentIteration} instruction.",
+                NotificationLevel.Info, cancellationToken).ConfigureAwait(false);
+
+            if (role == AgentRole.Claude)
+            {
+                Transition(BridgeState.WaitingForClaude, $"Resending Claude instruction for iteration {_currentIteration}");
+                await InvokeClaudeAsync(cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                Transition(BridgeState.WaitingForCodex, $"Resending Codex instruction for iteration {_currentIteration}");
+                await InvokeCodexAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            return true;
+        }
+        finally
+        {
+            _actionLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Ends the run when an agent that was working has stopped without leaving a
+    /// new protocol file behind.
+    ///
+    /// Nothing else notices this. Both waits are passive — the bridge sits on a
+    /// file watcher — so an agent that exits cleanly having written nothing puts
+    /// the run into a wait that no event will ever end. Unattended, that is
+    /// indistinguishable from an agent still thinking, and a real run has sat in
+    /// it for hours. An explicit Error at least says which agent stopped and what
+    /// file it did not write.
+    /// </summary>
+    private async Task FailIfTheAgentProducedNothingAsync(AgentRole role, CancellationToken cancellationToken)
+    {
+        // The recheck above can raise a change whose handler is still running.
+        // Concluding before it has had its chance would report a failure for a
+        // file that arrived.
+        await Task.Delay(FileArrivalGrace, cancellationToken).ConfigureAwait(false);
+
+        await _actionLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var (waitingState, sentAtUtc, fileName) = role == AgentRole.Claude
+                ? (BridgeState.WaitingForClaudeReport, _claudeInstructionSentAtUtc, _configuration.ClaudeReportFileName)
+                : (BridgeState.WaitingForCodexPrompt, _codexInstructionSentAtUtc, _configuration.CodexPromptFileName);
+
+            // Still waiting on the very instruction this probe was watching. Any
+            // other state — the file arrived, the operator paused, the run was
+            // stopped — means there is nothing to report.
+            if (_stateMachine.Current != waitingState || sentAtUtc is null)
+            {
+                return;
+            }
+
+            StopRuntimeResources();
+            SetError(
+                $"{role} finished without updating {fileName}, so iteration {_currentIteration} produced nothing "
+                + $"to hand on. Its run started at {sentAtUtc:u}. Check the agent's own output in the log: a "
+                + "permission it could not be granted unattended is the usual cause.");
+            Transition(BridgeState.Error, _lastError!);
+            await PersistStateAsync(cancellationToken).ConfigureAwait(false);
+            await NotifyAsync(
+                $"Agent Bridge — {role} produced nothing", _lastError!, NotificationLevel.Error, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            _actionLock.Release();
         }
     }
 
@@ -867,6 +1092,7 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
         }
 
         _codexInstructionSentAtUtc = DateTimeOffset.UtcNow;
+        StartCompletionWatchdog(AgentRole.Codex, adapter);
         _lastAgent = AgentRole.Codex;
         _lastAction = _configuration.DryRun
             ? $"[Dry Run] Would send instruction to Codex for iteration {_currentIteration}"
@@ -901,6 +1127,7 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
         }
 
         _claudeInstructionSentAtUtc = DateTimeOffset.UtcNow;
+        StartCompletionWatchdog(AgentRole.Claude, adapter);
         _lastAgent = AgentRole.Claude;
         _lastAction = _configuration.DryRun
             ? $"[Dry Run] Would send instruction to Claude for iteration {_currentIteration}"

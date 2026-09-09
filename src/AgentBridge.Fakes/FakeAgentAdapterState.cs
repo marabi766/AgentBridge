@@ -17,6 +17,14 @@ public sealed class FakeAgentAdapterState
 
     public bool IsProcessing { get; set; }
 
+    /// <summary>
+    /// Whether receiving an instruction makes this agent busy, as a real one is.
+    /// Off by default so the tests written before it keep their existing timing;
+    /// on, it lets a test model the case where an agent works for a while and
+    /// then stops without having written its protocol file.
+    /// </summary>
+    public bool BecomesBusyOnSend { get; set; }
+
     public bool ActivateSucceeds { get; set; } = true;
 
     public bool FindConversationSucceeds { get; set; } = true;
@@ -51,6 +59,7 @@ public sealed class FakeAgentAdapterState
         LaunchSucceeds = true;
         IsReady = true;
         IsProcessing = false;
+        BecomesBusyOnSend = false;
         ActivateSucceeds = true;
         FindConversationSucceeds = true;
         FindInputBoxSucceeds = true;
