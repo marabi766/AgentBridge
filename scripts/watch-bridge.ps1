@@ -102,7 +102,16 @@ Get-Content $log -Wait -Tail 20 | ForEach-Object {
             foreach ($block in $event.message.content) {
                 switch ($block.type) {
                     'text'     { Write-AgentLine $agent '>' $block.text 'White' }
-                    'tool_use' { Write-AgentLine $agent '*' "$($block.name) $($block.input.command ?? $block.input.file_path ?? $block.input.pattern)" 'Cyan' }
+                    'tool_use' {
+                        # Whichever of these the tool happens to carry says most
+                        # about what it is doing. Written out rather than with ??
+                        # so the script runs on Windows PowerShell 5.1, which is
+                        # what "powershell" still launches on a stock machine.
+                        $detail = $block.input.command
+                        if (-not $detail) { $detail = $block.input.file_path }
+                        if (-not $detail) { $detail = $block.input.pattern }
+                        Write-AgentLine $agent '*' "$($block.name) $detail" 'Cyan'
+                    }
                 }
             }
         }
