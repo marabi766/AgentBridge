@@ -186,7 +186,7 @@ public abstract class CommandLineAgentAdapter : IAgentAdapter, IReportsRunOutcom
             // verdict standing would let one transient failure justify retrying
             // the next iteration too.
             _lastRunFailedWithoutWorking = false;
-            _runCompletion = ObserveRunAsync(process, invocation.TimeoutSeconds);
+            _runCompletion = ObserveRunAsync(process, invocation.TimeoutSeconds, configuration.AgentLogLineLimit);
 
             // Writing the instruction and closing the stream is what starts the
             // work. Closing matters: the CLI reads the prompt from standard input,
@@ -334,12 +334,12 @@ public abstract class CommandLineAgentAdapter : IAgentAdapter, IReportsRunOutcom
     /// twenty minutes and one that hung after two are otherwise indistinguishable
     /// until it exits.
     /// </summary>
-    private async Task<int> ObserveRunAsync(Process process, int timeoutSeconds)
+    private async Task<int> ObserveRunAsync(Process process, int timeoutSeconds, int logLineLimit)
     {
         var startedAt = DateTimeOffset.UtcNow;
         try
         {
-            var transcript = new Transcript(this, process.Id);
+            var transcript = new Transcript(this, process.Id, logLineLimit);
             var stdout = PumpAsync(process.StandardOutput, transcript);
             var stderr = PumpAsync(process.StandardError, transcript);
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Max(1, timeoutSeconds)));
@@ -415,9 +415,8 @@ public abstract class CommandLineAgentAdapter : IAgentAdapter, IReportsRunOutcom
     /// day's log file and hold its whole output in memory, and neither is a
     /// price worth paying for visibility into a run that is going fine.
     /// </summary>
-    private sealed class Transcript(CommandLineAgentAdapter adapter, int processId)
+    private sealed class Transcript(CommandLineAgentAdapter adapter, int processId, int maximumLoggedLines)
     {
-        private const int MaximumLoggedLines = 2000;
 
         // Generous, because an agent asked for machine-readable output emits one
         // JSON object per line and cutting it produces something no reader can
@@ -462,15 +461,16 @@ public abstract class CommandLineAgentAdapter : IAgentAdapter, IReportsRunOutcom
                     return;
                 }
 
-                if (_loggedLines >= MaximumLoggedLines)
+                if (maximumLoggedLines > 0 && _loggedLines >= maximumLoggedLines)
                 {
                     if (!_saidItStoppedLogging)
                     {
                         _saidItStoppedLogging = true;
                         adapter._logger.LogInformation(
                             "{Agent} (pid {Pid}) has printed {Lines} lines; the rest is kept for diagnostics "
-                            + "but no longer logged line by line.",
-                            adapter.Name, processId, MaximumLoggedLines);
+                            + "but no longer logged line by line. Raise \"Agent log line limit\" in Settings, "
+                            + "or set it to 0, to keep logging.",
+                            adapter.Name, processId, maximumLoggedLines);
                     }
 
                     return;

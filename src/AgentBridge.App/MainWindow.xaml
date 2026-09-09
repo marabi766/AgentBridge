@@ -363,7 +363,10 @@
                                     <TextBlock Text="--print makes the run non-interactive; with no prompt argument the instruction is written to standard input. An unattended run has nobody to answer a permission prompt, so a run that has to ask produces no report: use --dangerously-skip-permissions if the loop must build and test on its own. Add --verbose --output-format stream-json to see Claude's progress in Activity as it happens."
                                                TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,10" />
                                     <TextBlock Text="RUN TIMEOUT (SECONDS)" Style="{StaticResource Caption}" />
-                                    <TextBox Text="{Binding ClaudeCliTimeoutSeconds}" Margin="0,3,0,0" />
+                                    <TextBox Text="{Binding ClaudeCliTimeoutSeconds}" Margin="0,3,0,10" />
+                                    <TextBlock Text="AGENT LOG LINE LIMIT (0 = NO LIMIT)" Style="{StaticResource Caption}" />
+                                    <TextBox Text="{Binding AgentLogLineLimit}" Margin="0,3,0,0"
+                                             automation:AutomationProperties.HelpText="Lines of one agent run written to the log before the rest is kept for diagnostics only. A run that executes a test suite can print far more than the default." />
                                 </StackPanel>
                             </Border>
                             <Border Grid.Column="1" Style="{StaticResource PanelStyle}">

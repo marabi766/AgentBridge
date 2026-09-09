@@ -83,6 +83,19 @@ public sealed record BridgeConfiguration
     /// <summary>How long one Codex run may take before it is abandoned.</summary>
     public int CodexCliTimeoutSeconds { get; init; } = 1800;
 
+    /// <summary>
+    /// How many lines of one agent run are written to the log before the rest is
+    /// kept for diagnostics only. Zero means no limit.
+    ///
+    /// The cap exists because an agent running a test suite can print tens of
+    /// thousands of lines, and a log nobody can open is no better than no log.
+    /// The default is high because rendering shrank each line from a couple of
+    /// kilobytes of JSON to a sentence: the same number of lines now costs a
+    /// fraction of what it used to, and the interesting part of a long run —
+    /// what the tests actually said — was landing past the old limit.
+    /// </summary>
+    public int AgentLogLineLimit { get; init; } = 20_000;
+
     // --- Message templates ---
     public string ClaudeInstructionTemplate { get; init; } = DefaultTemplates.ClaudeInstruction;
 

@@ -51,6 +51,17 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     // opened and nothing after, with no sign that it had stopped keeping up.
     private bool _followActivity = true;
 
+    // Where the Activity page has read up to. Negative means "start from the
+    // end", which is how a fresh page begins without replaying the whole day.
+    private long _activityPosition = -1;
+
+    // The view holds more than one tail so a long run can be scrolled back
+    // through, but not without bound: a run printing twenty thousand lines would
+    // otherwise put every one of them in a grid.
+    private const int MaximumActivityEntries = 2000;
+
+    private int _agentLogLineLimit = 20_000;
+
     public MainWindowViewModel(
         IOrchestratorService orchestrator,
         ISettingsService settingsService,
@@ -336,6 +347,12 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     public int ClaudeCliTimeoutSeconds { get => _claudeCliTimeoutSeconds; set => SetProperty(ref _claudeCliTimeoutSeconds, value); }
 
+    /// <summary>
+    /// Lines of one agent run written to the log before the rest is kept for
+    /// diagnostics only. Zero means no limit.
+    /// </summary>
+    public int AgentLogLineLimit { get => _agentLogLineLimit; set => SetProperty(ref _agentLogLineLimit, value); }
+
     public string CodexCliExecutable { get => _codexCliExecutable; set => SetProperty(ref _codexCliExecutable, value); }
 
     public string CodexCliArguments { get => _codexCliArguments; set => SetProperty(ref _codexCliArguments, value); }
@@ -525,13 +542,18 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>
+    /// Replaces the list with a fresh tail. This is Refresh — the deliberate
+    /// "show me what is there", as against the incremental follow below.
+    /// </summary>
     private async Task LoadActivityAsync()
     {
         try
         {
-            var entries = await _logService.TailAsync(250, CancellationToken.None);
+            var tail = await _logService.ReadSinceAsync(-1, 250, CancellationToken.None);
+            _activityPosition = tail.Position;
             ActivityEntries.Clear();
-            foreach (var entry in entries.Reverse()) ActivityEntries.Add(entry);
+            foreach (var entry in tail.Entries.Reverse()) ActivityEntries.Add(entry);
         }
         catch (Exception ex) { OperationMessage = $"Could not read activity: {ex.Message}"; }
     }
@@ -555,22 +577,40 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
                 try
                 {
-                    var entries = await _logService.TailAsync(250, cancellationToken).ConfigureAwait(false);
+                    var tail = await _logService
+                        .ReadSinceAsync(_activityPosition, 250, cancellationToken)
+                        .ConfigureAwait(false);
+
+                    if (tail.Entries.Count == 0 && !tail.Restarted)
+                    {
+                        _activityPosition = tail.Position;
+                        continue;
+                    }
+
                     _uiContext.Post(_ =>
                     {
-                        // Rebuilt only when it actually changed. Replacing an
-                        // identical list every three seconds would reset the
-                        // selection and scroll position of anyone reading it.
-                        if (ActivityEntries.Count == entries.Count
-                            && (entries.Count == 0
-                                || ActivityEntries[0].TimestampUtc == entries[^1].TimestampUtc))
+                        // A new day's file is a different stretch of time. Showing
+                        // it above yesterday's entries would read as one run.
+                        if (tail.Restarted)
                         {
-                            return;
+                            ActivityEntries.Clear();
                         }
 
-                        ActivityEntries.Clear();
-                        foreach (var entry in entries.Reverse()) ActivityEntries.Add(entry);
+                        // Newest first, so each arrival goes to the top and the
+                        // entries already there are not touched — which is what
+                        // leaves a reader's scroll position and selection alone.
+                        foreach (var entry in tail.Entries)
+                        {
+                            ActivityEntries.Insert(0, entry);
+                        }
+
+                        while (ActivityEntries.Count > MaximumActivityEntries)
+                        {
+                            ActivityEntries.RemoveAt(ActivityEntries.Count - 1);
+                        }
                     }, null);
+
+                    _activityPosition = tail.Position;
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -606,18 +646,23 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// Empties what the page is showing. The log files themselves are left
-    /// alone — this is a way to get a clean view before watching the next step,
-    /// not a way to destroy the record of the last one.
+    /// Empties what the page is showing and carries on from here, so what
+    /// appears next is only what happens next. The log files are untouched —
+    /// this is a clean view to watch the next step in, not a way to destroy the
+    /// record of the last one, and Refresh brings that record straight back.
     ///
-    /// Following has to stop, or the next tick would refill the list within
-    /// seconds and the button would look broken.
+    /// Following used to have to be switched off here: the page re-read the whole
+    /// file, so the next tick refilled the list within seconds and the button
+    /// looked broken. Reading forward from where it left off means nothing old
+    /// can come back on its own, so following stays on and the cleared view fills
+    /// with the next step as it happens.
     /// </summary>
     private void ClearActivityView()
     {
-        FollowActivity = false;
         ActivityEntries.Clear();
-        OperationMessage = "Activity view cleared. The log files are unchanged — Refresh brings them back.";
+        OperationMessage = FollowActivity
+            ? "Activity view cleared. Only what happens from now on will appear; Refresh brings the log back."
+            : "Activity view cleared. The log files are unchanged — Refresh brings them back.";
     }
 
     private async Task TestClaudeAsync()
@@ -708,6 +753,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         ClaudeCliExecutable = ClaudeCliExecutable,
         ClaudeCliArguments = ClaudeCliArguments,
         ClaudeCliTimeoutSeconds = ClaudeCliTimeoutSeconds,
+        AgentLogLineLimit = AgentLogLineLimit,
         CodexCliExecutable = CodexCliExecutable,
         CodexCliArguments = CodexCliArguments,
         CodexCliTimeoutSeconds = CodexCliTimeoutSeconds,
@@ -734,6 +780,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         ClaudeCliExecutable = value.ClaudeCliExecutable;
         ClaudeCliArguments = value.ClaudeCliArguments;
         ClaudeCliTimeoutSeconds = value.ClaudeCliTimeoutSeconds;
+        AgentLogLineLimit = value.AgentLogLineLimit;
         CodexCliExecutable = value.CodexCliExecutable;
         CodexCliArguments = value.CodexCliArguments;
         CodexCliTimeoutSeconds = value.CodexCliTimeoutSeconds;
