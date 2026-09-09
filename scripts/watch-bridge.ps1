@@ -17,7 +17,9 @@
     something this view drops.
 
 .PARAMETER LogsDirectory
-    Where to look for the log. Defaults to the headless host's own directory.
+    Where to look for the log. Omit it and both hosts are searched — the desktop
+    app and the headless host keep separate logs — and whichever has written
+    most recently today is followed.
 
 .EXAMPLE
     .\watch-bridge.ps1
@@ -25,15 +27,36 @@
 [CmdletBinding()]
 param(
     [switch]$Full,
-    [string]$LogsDirectory = (Join-Path $env:LOCALAPPDATA 'AgentBridge\cli\logs')
+    [string]$LogsDirectory
 )
 
 $ErrorActionPreference = 'Stop'
 
 # The log is named for the UTC day, which is not necessarily today's local date.
-$log = Join-Path $LogsDirectory ((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd') + '.log')
-if (-not (Test-Path $log)) {
-    Write-Host "No log for today at $log — is a run in progress?" -ForegroundColor Yellow
+$today = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd') + '.log'
+
+# Defaulting to one host was a trap: the desktop app writes to AgentBridge\logs
+# and the headless host to AgentBridge\cli\logs, so whichever default was chosen
+# reported "no log" to half the people running a live loop. Search both and take
+# the one being written to now.
+$candidates = if ($LogsDirectory) {
+    @(Join-Path $LogsDirectory $today)
+} else {
+    @(
+        (Join-Path $env:LOCALAPPDATA "AgentBridge\logs\$today"),
+        (Join-Path $env:LOCALAPPDATA "AgentBridge\cli\logs\$today")
+    )
+}
+
+$log = $candidates |
+    Where-Object { Test-Path $_ } |
+    Sort-Object { (Get-Item $_).LastWriteTime } -Descending |
+    Select-Object -First 1
+
+if (-not $log) {
+    Write-Host "No log for today. Looked in:" -ForegroundColor Yellow
+    $candidates | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
+    Write-Host "Is a run in progress?" -ForegroundColor Yellow
     return
 }
 

@@ -62,7 +62,10 @@ public partial class MainWindow : System.Windows.Window
 
     private bool ConfirmReset() => MessageBox.Show(
         this,
-        "Resetting discards the current iteration counter, recorded protocol-file hashes, and retry progress. Protocol files, project settings, Git data, and logs are not changed.\n\nReset recovery state?",
+        "Resetting discards the current iteration counter, recorded protocol-file hashes, and retry progress. "
+        + "The current ClaudeResultReport.md and CodexPrompt.md then count as new again, so the next Start will "
+        + "act on whichever one the chosen checkpoint waits for.\n\n"
+        + "Protocol files, project settings, Git data, and logs are not changed.\n\nReset Agent Bridge state?",
         "Reset Agent Bridge state",
         MessageBoxButton.OKCancel,
         MessageBoxImage.Warning,

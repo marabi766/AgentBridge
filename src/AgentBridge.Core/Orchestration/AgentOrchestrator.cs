@@ -592,7 +592,7 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
 
             if (string.Equals(e.ContentHashSha256, _lastClaudeReportHash, StringComparison.Ordinal))
             {
-                _logger.LogDebug("Ignoring duplicate ClaudeResultReport.md hash {Hash}.", e.ContentHashSha256);
+                NoteFileAlreadyHandled(AgentRole.Claude, _configuration.ClaudeReportFileName);
                 return;
             }
 
@@ -666,7 +666,7 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
 
             if (string.Equals(e.ContentHashSha256, _lastCodexPromptHash, StringComparison.Ordinal))
             {
-                _logger.LogDebug("Ignoring duplicate CodexPrompt.md hash {Hash}.", e.ContentHashSha256);
+                NoteFileAlreadyHandled(AgentRole.Codex, _configuration.CodexPromptFileName);
                 return;
             }
 
@@ -1259,6 +1259,28 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
     /// After a restart nothing is outstanding, so a file written while the bridge
     /// was down is still consumed on its hash alone.
     /// </summary>
+    /// <summary>
+    /// Says, where the operator can see it, that the file this state is waiting
+    /// for is byte-for-byte the one already acted on.
+    ///
+    /// This used to be a debug line, which the hosts do not emit: the bridge sat
+    /// in a waiting state with nothing on screen and nothing in the log, and the
+    /// only way to learn why was to read the persisted hashes by hand. It is a
+    /// dead end rather than a pause — the other agent writes its file only in
+    /// answer to this one — so it has to be visible and it has to say what fixes
+    /// it.
+    /// </summary>
+    private void NoteFileAlreadyHandled(AgentRole role, string fileName)
+    {
+        _lastAction =
+            $"{fileName} is unchanged since it was last acted on, so it was not handled again. "
+            + $"Reset the bridge state to run it again, or wait for {role} to write a new one.";
+        _logger.LogInformation(
+            "Ignoring {File}: its content is identical to the revision already handled, so there is nothing new "
+            + "to act on. Reset the bridge state to act on it again, or wait for a new revision.", fileName);
+        PublishStatus();
+    }
+
     private bool PredatesInstruction(AgentRole role, StableFileChangedEventArgs e)
     {
         var sentAtUtc = role == AgentRole.Claude

@@ -89,7 +89,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         BrowseProjectCommand = new RelayCommand(_ => BrowseProject());
         SetupNextCommand = new AsyncCommand(SetupNextAsync);
         SetupBackCommand = new RelayCommand(_ => SetupStep--, _ => SetupStep > 1);
-        ResetStateCommand = new AsyncCommand(ResetStateAsync, () => HasError);
+        ResetStateCommand = new AsyncCommand(ResetStateAsync, () => CanResetState);
         NavigateCommand = new RelayCommand(p => CurrentPage = p?.ToString() ?? "Dashboard");
     }
 
@@ -156,6 +156,21 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public bool CanContinueWaitingForCodex => Status?.CurrentState == BridgeState.Error
         && Status.LastError?.StartsWith("Failed to deliver instruction to Codex", StringComparison.Ordinal) == true;
     public bool CanStop => Status?.CurrentState is not (null or BridgeState.Idle or BridgeState.Stopped);
+
+    /// <summary>
+    /// Reset is available whenever the bridge is not running, not only after an
+    /// error. Persisted state can strand a run without ever reaching Error: a
+    /// protocol file whose hash is already recorded as consumed is skipped
+    /// forever, so the bridge waits for a revision the other agent will never
+    /// write. Gating recovery on Error left that case with no way out of the
+    /// application at all — the file had to be deleted by hand.
+    ///
+    /// A run in flight is still excluded. Discarding the iteration counter and
+    /// recorded hashes underneath a live orchestration would be a different and
+    /// much worse problem than the one this solves.
+    /// </summary>
+    public bool CanResetState =>
+        Status?.CurrentState is null or BridgeState.Idle or BridgeState.Stopped or BridgeState.Error;
     public BridgeStartPoint SelectedStartPoint
     {
         get => _selectedStartPoint;
@@ -391,7 +406,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private async Task ResetStateAsync()
     {
         if (ConfirmReset?.Invoke() != true) return;
-        await RunOperationAsync("Resetting recovery state…", _orchestrator.ResetStateAsync);
+        await RunOperationAsync("Resetting bridge state…", _orchestrator.ResetStateAsync);
     }
 
     private void BrowseProject()
@@ -630,7 +645,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     private void RaiseStatusProperties()
     {
-        foreach (var name in new[] { nameof(HasError), nameof(CanStart), nameof(CanPause), nameof(CanResume), nameof(CanRetryClaude), nameof(CanRetryCodex), nameof(CanContinueWaitingForClaude), nameof(CanContinueWaitingForCodex), nameof(CanStop), nameof(StateText), nameof(IterationText), nameof(ModeText), nameof(ModeExplanation), nameof(GeneratedText), nameof(LastActionText), nameof(LastErrorText), nameof(ClaudeStatusText), nameof(CodexStatusText), nameof(GitBranchText), nameof(GitTreeText), nameof(ClaudeFileUpdateText), nameof(CodexFileUpdateText), nameof(CycleProgress), nameof(CycleProgressText) })
+        foreach (var name in new[] { nameof(HasError), nameof(CanStart), nameof(CanPause), nameof(CanResume), nameof(CanRetryClaude), nameof(CanRetryCodex), nameof(CanContinueWaitingForClaude), nameof(CanContinueWaitingForCodex), nameof(CanStop), nameof(CanResetState), nameof(StateText), nameof(IterationText), nameof(ModeText), nameof(ModeExplanation), nameof(GeneratedText), nameof(LastActionText), nameof(LastErrorText), nameof(ClaudeStatusText), nameof(CodexStatusText), nameof(GitBranchText), nameof(GitTreeText), nameof(ClaudeFileUpdateText), nameof(CodexFileUpdateText), nameof(CycleProgress), nameof(CycleProgressText) })
             OnPropertyChanged(name);
         StartCommand.RaiseCanExecuteChanged();
         PauseCommand.RaiseCanExecuteChanged();
