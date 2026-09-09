@@ -39,7 +39,7 @@ public sealed record CommandLineInvocation
 /// has to be found and focused. Here there is no window, so they succeed
 /// immediately — that is the point of this adapter, not an omission.
 /// </summary>
-public abstract class CommandLineAgentAdapter : IAgentAdapter, IReportsRunOutcome, IDisposable
+public abstract class CommandLineAgentAdapter : IAgentAdapter, IReportsRunOutcome, IContinuesItsLastSession, IDisposable
 {
     /// <summary>
     /// Under this, a failed run cannot have done the work. These agents read a
@@ -100,6 +100,17 @@ public abstract class CommandLineAgentAdapter : IAgentAdapter, IReportsRunOutcom
     /// <summary>Reads this agent's command line settings out of the configuration.</summary>
     protected abstract CommandLineInvocation ReadInvocation(BridgeConfiguration configuration);
 
+    /// <summary>
+    /// Rewrites the ordinary arguments into the ones that resume the last
+    /// session. Each CLI spells this its own way, so each adapter says how.
+    ///
+    /// It is derived from the configured arguments rather than configured
+    /// separately so that the two cannot drift: a model, sandbox or output
+    /// format set for normal runs applies to a resumed one without being
+    /// remembered in a second place.
+    /// </summary>
+    public abstract string ResumeArguments(string? arguments);
+
     public async Task<bool> IsApplicationRunningAsync(CancellationToken cancellationToken)
     {
         // "Running" for a command means "can be run": there is no resident
@@ -128,7 +139,18 @@ public abstract class CommandLineAgentAdapter : IAgentAdapter, IReportsRunOutcom
     /// <summary>No editor to find: the instruction is written to standard input.</summary>
     public Task<bool> FindInputBoxAsync(CancellationToken cancellationToken) => Task.FromResult(true);
 
-    public async Task<bool> SendMessageAsync(string message, CancellationToken cancellationToken)
+    public Task<bool> SendMessageAsync(string message, CancellationToken cancellationToken) =>
+        StartRunAsync(message, resumeLastSession: false, cancellationToken);
+
+    /// <summary>
+    /// Sends the message into the session this agent was last having. Same run
+    /// machinery, different arguments — which is the whole difference between
+    /// "continue" meaning something and meaning nothing.
+    /// </summary>
+    public Task<bool> ContinueLastSessionAsync(string message, CancellationToken cancellationToken) =>
+        StartRunAsync(message, resumeLastSession: true, cancellationToken);
+
+    private async Task<bool> StartRunAsync(string message, bool resumeLastSession, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(message))
         {
@@ -147,6 +169,11 @@ public abstract class CommandLineAgentAdapter : IAgentAdapter, IReportsRunOutcom
 
             var configuration = await _configurationService.LoadAsync(cancellationToken).ConfigureAwait(false);
             var invocation = ReadInvocation(configuration);
+            if (resumeLastSession)
+            {
+                invocation = invocation with { Arguments = ResumeArguments(invocation.Arguments) };
+            }
+
             var executable = ResolveExecutable(invocation.ConfiguredExecutable);
             if (executable is null)
             {
@@ -196,7 +223,9 @@ public abstract class CommandLineAgentAdapter : IAgentAdapter, IReportsRunOutcom
             process.StandardInput.Close();
 
             _logger.LogInformation(
-                "Delivered {Length} characters to {Agent} (pid {Pid}) in {Directory}.",
+                resumeLastSession
+                    ? "Delivered {Length} characters to {Agent} (pid {Pid}) in {Directory}, resuming its last session."
+                    : "Delivered {Length} characters to {Agent} (pid {Pid}) in {Directory}.",
                 message.Length, Name, process.Id, configuration.ProjectPath);
             return true;
         }

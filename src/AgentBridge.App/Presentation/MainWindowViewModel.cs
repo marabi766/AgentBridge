@@ -90,6 +90,12 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         RetryCodexCommand = new AsyncCommand(
             () => RunOperationAsync("Retrying Codex delivery…", _orchestrator.RetryCodexDeliveryAsync),
             () => CanRetryCodex);
+        ContinueClaudeCommand = new AsyncCommand(
+            () => RunOperationAsync("Asking Claude to continue…", _orchestrator.ContinueClaudeAsync),
+            () => CanContinueClaude);
+        ContinueCodexCommand = new AsyncCommand(
+            () => RunOperationAsync("Asking Codex to continue…", _orchestrator.ContinueCodexAsync),
+            () => CanContinueCodex);
         ContinueWaitingForClaudeCommand = new AsyncCommand(
             () => RunOperationAsync("Continuing to wait for Claude…", _orchestrator.ContinueWaitingForClaudeAsync),
             () => CanContinueWaitingForClaude);
@@ -116,6 +122,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public AsyncCommand ResumeCommand { get; }
     public AsyncCommand RetryClaudeCommand { get; }
     public AsyncCommand RetryCodexCommand { get; }
+    public AsyncCommand ContinueClaudeCommand { get; }
+    public AsyncCommand ContinueCodexCommand { get; }
     public AsyncCommand ContinueWaitingForClaudeCommand { get; }
     public AsyncCommand ContinueWaitingForCodexCommand { get; }
     public AsyncCommand StopCommand { get; }
@@ -172,6 +180,18 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         && (Status.CurrentState is BridgeState.WaitingForClaudeReport or BridgeState.WaitingForCodexPrompt
             || Status.CurrentState == BridgeState.Error
             && Status.LastError?.StartsWith("Failed to deliver instruction to Codex", StringComparison.Ordinal) == true);
+    /// <summary>
+    /// Continue is offered where an agent had a session worth carrying on: the
+    /// state that waits for its file, and Error — which is usually exactly the
+    /// run that stopped mid-way. Never while it is still working, because there
+    /// is nothing to continue until it stops.
+    /// </summary>
+    public bool CanContinueClaude => Status?.CurrentIteration > 0
+        && Status.ClaudeStatus != AgentStatus.Busy
+        && Status.CurrentState is BridgeState.WaitingForClaudeReport or BridgeState.Error;
+    public bool CanContinueCodex => Status?.CurrentIteration > 0
+        && Status.CodexStatus != AgentStatus.Busy
+        && Status.CurrentState is BridgeState.WaitingForCodexPrompt or BridgeState.Error;
     public bool CanContinueWaitingForClaude => Status?.CurrentState == BridgeState.Error
         && Status.LastError?.StartsWith("Failed to deliver instruction to Claude", StringComparison.Ordinal) == true;
     public bool CanContinueWaitingForCodex => Status?.CurrentState == BridgeState.Error
@@ -794,7 +814,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     private void RaiseStatusProperties()
     {
-        foreach (var name in new[] { nameof(HasError), nameof(CanStart), nameof(CanPause), nameof(CanResume), nameof(CanRetryClaude), nameof(CanRetryCodex), nameof(CanContinueWaitingForClaude), nameof(CanContinueWaitingForCodex), nameof(CanStop), nameof(CanResetState), nameof(StateText), nameof(IterationText), nameof(ModeText), nameof(ModeExplanation), nameof(GeneratedText), nameof(LastActionText), nameof(LastErrorText), nameof(ClaudeStatusText), nameof(CodexStatusText), nameof(GitBranchText), nameof(GitTreeText), nameof(ClaudeFileUpdateText), nameof(CodexFileUpdateText), nameof(CycleProgress), nameof(CycleProgressText) })
+        foreach (var name in new[] { nameof(HasError), nameof(CanStart), nameof(CanPause), nameof(CanResume), nameof(CanRetryClaude), nameof(CanRetryCodex), nameof(CanContinueClaude), nameof(CanContinueCodex), nameof(CanContinueWaitingForClaude), nameof(CanContinueWaitingForCodex), nameof(CanStop), nameof(CanResetState), nameof(StateText), nameof(IterationText), nameof(ModeText), nameof(ModeExplanation), nameof(GeneratedText), nameof(LastActionText), nameof(LastErrorText), nameof(ClaudeStatusText), nameof(CodexStatusText), nameof(GitBranchText), nameof(GitTreeText), nameof(ClaudeFileUpdateText), nameof(CodexFileUpdateText), nameof(CycleProgress), nameof(CycleProgressText) })
             OnPropertyChanged(name);
         StartCommand.RaiseCanExecuteChanged();
         PauseCommand.RaiseCanExecuteChanged();

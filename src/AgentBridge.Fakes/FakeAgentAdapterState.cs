@@ -48,6 +48,13 @@ public sealed class FakeAgentAdapterState
 
     public List<string> SentMessages { get; } = [];
 
+    /// <summary>
+    /// The subset of <see cref="SentMessages"/> delivered into an existing
+    /// session rather than a fresh one. Separate because that difference is the
+    /// whole point of Continue and is invisible in the message itself.
+    /// </summary>
+    public List<string> ResumedMessages { get; } = [];
+
     public int IsApplicationRunningCallCount { get; internal set; }
 
     public int IsReadyCallCount { get; internal set; }
@@ -80,5 +87,6 @@ public sealed class FakeAgentAdapterState
         FindInputBoxCallCount = 0;
         SendMessageCallCount = 0;
         SentMessages.Clear();
+        ResumedMessages.Clear();
     }
 }

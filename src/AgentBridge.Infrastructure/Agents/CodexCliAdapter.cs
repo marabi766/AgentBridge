@@ -29,4 +29,31 @@ public sealed class CodexCliAdapter : CommandLineAgentAdapter
         InstallHint = "Install it with \"npm install -g @openai/codex\" and sign in, "
             + "or point Codex CLI executable at its full path.",
     };
+
+    /// <summary>
+    /// Codex resumes through a subcommand — <c>exec resume --last</c> — so the
+    /// words go immediately after the verb rather than in front of everything.
+    /// Putting them first would make "resume" the top-level command and lose
+    /// <c>exec</c> along with the non-interactive behaviour that depends on it.
+    /// </summary>
+    public override string ResumeArguments(string? arguments)
+    {
+        var parts = SplitArguments(arguments).ToList();
+        if (parts.Contains("resume", StringComparer.Ordinal))
+        {
+            return arguments ?? string.Empty;
+        }
+
+        var verb = parts.IndexOf("exec");
+        if (verb < 0)
+        {
+            // No exec to attach to. Say so by leaving the arguments alone: a
+            // guessed command line is worse than a run the operator can see did
+            // not resume.
+            return arguments ?? string.Empty;
+        }
+
+        parts.InsertRange(verb + 1, ["resume", "--last"]);
+        return string.Join(' ', parts);
+    }
 }

@@ -34,6 +34,13 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
     // delivery has to be allowed to outlast their sum, or it can never finish.
     private static readonly TimeSpan TypicalDeliveryTimeout = TimeSpan.FromSeconds(180);
 
+    /// <summary>
+    /// What Continue sends. One word on purpose: the session it lands in already
+    /// holds the instruction, the repository and everything the agent had done,
+    /// so restating any of that would only argue with what it already knows.
+    /// </summary>
+    private const string ContinueInstruction = "continue";
+
     // After an agent stops and its protocol file has been rechecked, how long a
     // file that is genuinely on its way is given to arrive before the iteration
     // is called empty.
@@ -319,6 +326,71 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
 
         if (claudeWatcher is not null) await claudeWatcher.CheckNowAsync(cancellationToken).ConfigureAwait(false);
         if (codexWatcher is not null) await codexWatcher.CheckNowAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public Task ContinueClaudeAsync(CancellationToken cancellationToken) =>
+        ContinueAgentAsync(AgentRole.Claude, cancellationToken);
+
+    public Task ContinueCodexAsync(CancellationToken cancellationToken) =>
+        ContinueAgentAsync(AgentRole.Codex, cancellationToken);
+
+    /// <summary>
+    /// Nudges an agent that stopped short back into the work it was already
+    /// doing, without advancing the cycle or resending the whole instruction.
+    ///
+    /// This is for the case the automatic paths cannot judge: an agent that ran,
+    /// did real work, and stopped before finishing — a context limit, a refusal
+    /// it recovered from, an operator's own Stop. Whether that work is worth
+    /// continuing is a judgement about the repository, not about anything the
+    /// bridge can observe, so it stays a button rather than a rule.
+    /// </summary>
+    private async Task ContinueAgentAsync(AgentRole role, CancellationToken cancellationToken)
+    {
+        await _actionLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var adapter = _agentAdapterProvider.GetAdapter(role);
+            if (await adapter.IsProcessingAsync(cancellationToken).ConfigureAwait(false))
+            {
+                throw new InvalidOperationException(
+                    $"{role} is still working; there is nothing to continue until it stops.");
+            }
+
+            // Both routes end in the same waiting state they started from, so the
+            // watchers and the completion probe carry on unchanged. Reaching that
+            // state from Error also needs the run's resources back.
+            var target = role == AgentRole.Claude ? BridgeState.WaitingForClaude : BridgeState.WaitingForCodex;
+            if (!BridgeStateMachine.IsValidTransition(_stateMachine.Current, target))
+            {
+                throw new InvalidOperationException(
+                    $"{role} cannot be continued from {_stateMachine.Current}.");
+            }
+
+            if (_runCts is null)
+            {
+                EnsureWatchers();
+                _runCts = new CancellationTokenSource();
+                _claudeWatcher!.Start();
+                _codexWatcher!.Start();
+            }
+
+            _lastError = null;
+            Transition(target, $"Continuing {role} for iteration {_currentIteration}");
+            await PersistStateAsync(cancellationToken).ConfigureAwait(false);
+
+            if (role == AgentRole.Claude)
+            {
+                await InvokeClaudeAsync(cancellationToken, continueLastSession: true).ConfigureAwait(false);
+            }
+            else
+            {
+                await InvokeCodexAsync(cancellationToken, continueLastSession: true).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            _actionLock.Release();
+        }
     }
 
     public async Task ContinueWaitingForClaudeAsync(CancellationToken cancellationToken)
@@ -1167,9 +1239,13 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
         }
     }
 
-    private async Task InvokeCodexAsync(CancellationToken cancellationToken)
+    private async Task InvokeCodexAsync(CancellationToken cancellationToken, bool continueLastSession = false)
     {
-        Transition(BridgeState.CodexProcessing, $"Invoking Codex for iteration {_currentIteration}");
+        Transition(
+            BridgeState.CodexProcessing,
+            continueLastSession
+                ? $"Asking Codex to continue iteration {_currentIteration}"
+                : $"Invoking Codex for iteration {_currentIteration}");
         await PersistStateAsync(cancellationToken).ConfigureAwait(false);
 
         var branch = await SafeRefreshGitStatusAsync(cancellationToken).ConfigureAwait(false);
@@ -1177,10 +1253,12 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             _configuration.ProjectPath, _currentIteration, _configuration.MaximumIterations,
             _configuration.ClaudeReportFileName, _configuration.CodexPromptFileName,
             branch, _lastClaudeReportHash, _lastCodexPromptHash);
-        var message = _templateEngine.Render(_configuration.CodexInstructionTemplate, variables);
+        var message = continueLastSession
+            ? ContinueInstruction
+            : _templateEngine.Render(_configuration.CodexInstructionTemplate, variables);
 
         var adapter = _agentAdapterProvider.GetAdapter(AgentRole.Codex);
-        var success = await InvokeAgentAsync(adapter, message, cancellationToken).ConfigureAwait(false);
+        var success = await InvokeAgentAsync(adapter, message, continueLastSession, cancellationToken).ConfigureAwait(false);
 
         if (!success)
         {
@@ -1202,9 +1280,13 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
         await NotifyAsync("Agent Bridge", $"Codex is reviewing iteration {_currentIteration}.", NotificationLevel.Info, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task InvokeClaudeAsync(CancellationToken cancellationToken)
+    private async Task InvokeClaudeAsync(CancellationToken cancellationToken, bool continueLastSession = false)
     {
-        Transition(BridgeState.ClaudeProcessing, $"Invoking Claude for iteration {_currentIteration}");
+        Transition(
+            BridgeState.ClaudeProcessing,
+            continueLastSession
+                ? $"Asking Claude to continue iteration {_currentIteration}"
+                : $"Invoking Claude for iteration {_currentIteration}");
         await PersistStateAsync(cancellationToken).ConfigureAwait(false);
 
         var branch = await SafeRefreshGitStatusAsync(cancellationToken).ConfigureAwait(false);
@@ -1212,10 +1294,12 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             _configuration.ProjectPath, _currentIteration, _configuration.MaximumIterations,
             _configuration.ClaudeReportFileName, _configuration.CodexPromptFileName,
             branch, _lastClaudeReportHash, _lastCodexPromptHash);
-        var message = _templateEngine.Render(_configuration.ClaudeInstructionTemplate, variables);
+        var message = continueLastSession
+            ? ContinueInstruction
+            : _templateEngine.Render(_configuration.ClaudeInstructionTemplate, variables);
 
         var adapter = _agentAdapterProvider.GetAdapter(AgentRole.Claude);
-        var success = await InvokeAgentAsync(adapter, message, cancellationToken).ConfigureAwait(false);
+        var success = await InvokeAgentAsync(adapter, message, continueLastSession, cancellationToken).ConfigureAwait(false);
 
         if (!success)
         {
@@ -1237,7 +1321,8 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
         await NotifyAsync("Agent Bridge", $"Claude is implementing iteration {_currentIteration + 1}.", NotificationLevel.Info, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<bool> InvokeAgentAsync(IAgentAdapter adapter, string message, CancellationToken cancellationToken)
+    private async Task<bool> InvokeAgentAsync(
+        IAgentAdapter adapter, string message, bool continueLastSession, CancellationToken cancellationToken)
     {
         if (_configuration.DryRun)
         {
@@ -1309,7 +1394,12 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
 
             if (!await _retryPolicy.ExecuteUntilTrueAsync(t => adapter.FindInputBoxAsync(t), retryOptions, token).ConfigureAwait(false)) return false;
 
-            return await adapter.SendMessageAsync(message, token).ConfigureAwait(false);
+            // A desktop window already *is* the conversation, so typing into it
+            // continues by itself. Only a command line needs to be told to bring
+            // the session back.
+            return continueLastSession && adapter is IContinuesItsLastSession resuming
+                ? await resuming.ContinueLastSessionAsync(message, token).ConfigureAwait(false)
+                : await adapter.SendMessageAsync(message, token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {

@@ -123,6 +123,8 @@
                             <Button Content="▶ Resume" Command="{Binding ResumeCommand}" />
                             <Button Content="↻ Retry Codex" Command="{Binding RetryCodexCommand}" automation:AutomationProperties.HelpText="Resends the current Claude report instruction to Codex without resetting iteration progress." />
                             <Button Content="↻ Retry Claude" Command="{Binding RetryClaudeCommand}" automation:AutomationProperties.HelpText="Resends the current Codex instruction to Claude without resetting iteration progress." />
+                            <Button Content="▸ Continue Claude" Command="{Binding ContinueClaudeCommand}" automation:AutomationProperties.HelpText="Asks Claude to carry on with the session it was already having, without resending the instruction." />
+                            <Button Content="▸ Continue Codex" Command="{Binding ContinueCodexCommand}" automation:AutomationProperties.HelpText="Asks Codex to carry on with the session it was already having, without resending the instruction." />
                             <Button Content="■ Stop" Command="{Binding StopCommand}" Foreground="{DynamicResource ErrorBrush}" />
                             <Button Content="↻ Refresh" Command="{Binding RefreshCommand}" />
                             <Button Content="Reset state…" Command="{Binding ResetStateCommand}"

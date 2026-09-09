@@ -106,8 +106,8 @@ public static class AgentStreamLine
                     Append(rendered, detail is null ? $"[{name}]" : $"[{name}] {Collapse(detail)}");
                     break;
 
-                // "thinking" carries an empty string and a signature blob. There
-                // is nothing in it for a reader.
+                    // "thinking" carries an empty string and a signature blob. There
+                    // is nothing in it for a reader.
             }
         }
 

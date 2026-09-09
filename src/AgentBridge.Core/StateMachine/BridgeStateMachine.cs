@@ -50,8 +50,14 @@ public sealed class BridgeStateMachine
 
             [BridgeState.Stopped] = [BridgeState.WaitingForClaudeReport],
 
+            // WaitingForClaude is reachable from Error for the same reason
+            // WaitingForCodex always was: an operator who has looked at the
+            // repository can send the run back to either agent. Its absence made
+            // "Claude finished without updating its report" — the error most
+            // likely to be worth continuing from — the one error Claude could not
+            // be asked to continue from.
             [BridgeState.Error] =
-                [BridgeState.Idle, BridgeState.WaitingForClaudeReport, BridgeState.WaitingForCodex, BridgeState.WaitingForCodexPrompt, BridgeState.Stopped],
+                [BridgeState.Idle, BridgeState.WaitingForClaudeReport, BridgeState.WaitingForClaude, BridgeState.WaitingForCodex, BridgeState.WaitingForCodexPrompt, BridgeState.Stopped],
         };
 
     private readonly Lock _gate = new();

@@ -76,6 +76,9 @@ public sealed class CommandLineAgentAdapterTests
 
         public override AgentRole Role => AgentRole.Codex;
 
+        /// <summary>sort has no sessions; the flag is enough to see it was used.</summary>
+        public override string ResumeArguments(string? arguments) => $"--resumed {arguments}".Trim();
+
         /// <summary>
         /// The run is observed on a background task, exactly as it is in
         /// production. A test that asserted on its output without waiting would

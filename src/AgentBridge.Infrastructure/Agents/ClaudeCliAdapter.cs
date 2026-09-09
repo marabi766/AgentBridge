@@ -29,4 +29,17 @@ public sealed class ClaudeCliAdapter : CommandLineAgentAdapter
         InstallHint = "Install it with \"npm install -g @anthropic-ai/claude-code\" and sign in, "
             + "or point Claude CLI executable at its full path.",
     };
+
+    /// <summary>
+    /// <c>--continue</c> picks up the most recent conversation in the working
+    /// directory, which is the project — so the session it resumes is the one
+    /// that was working on this repository, not whatever ran last elsewhere.
+    /// </summary>
+    public override string ResumeArguments(string? arguments) =>
+        Contains(arguments, "--continue") || Contains(arguments, "-c")
+            ? arguments!
+            : $"--continue {arguments}".TrimEnd();
+
+    private static bool Contains(string? arguments, string flag) =>
+        SplitArguments(arguments).Contains(flag, StringComparer.Ordinal);
 }

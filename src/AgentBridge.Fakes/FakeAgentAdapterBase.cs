@@ -3,7 +3,8 @@ using AgentBridge.Abstractions.Models;
 
 namespace AgentBridge.Fakes;
 
-public abstract class FakeAgentAdapterBase(string name, AgentRole role) : IAgentAdapter, IReportsRunOutcome
+public abstract class FakeAgentAdapterBase(string name, AgentRole role)
+    : IAgentAdapter, IReportsRunOutcome, IContinuesItsLastSession
 {
     public string Name { get; } = name;
 
@@ -57,7 +58,14 @@ public abstract class FakeAgentAdapterBase(string name, AgentRole role) : IAgent
         return Task.FromResult(State.FindInputBoxSucceeds);
     }
 
-    public async Task<bool> SendMessageAsync(string message, CancellationToken cancellationToken)
+    public Task<bool> SendMessageAsync(string message, CancellationToken cancellationToken) =>
+        DeliverAsync(message, resumed: false, cancellationToken);
+
+    /// <summary>Records that the session was resumed, so a test can tell the two apart.</summary>
+    public Task<bool> ContinueLastSessionAsync(string message, CancellationToken cancellationToken) =>
+        DeliverAsync(message, resumed: true, cancellationToken);
+
+    private async Task<bool> DeliverAsync(string message, bool resumed, CancellationToken cancellationToken)
     {
         State.SendMessageCallCount++;
 
@@ -72,6 +80,11 @@ public abstract class FakeAgentAdapterBase(string name, AgentRole role) : IAgent
         }
 
         State.SentMessages.Add(message);
+        if (resumed)
+        {
+            State.ResumedMessages.Add(message);
+        }
+
         if (State.BecomesBusyOnSend)
         {
             State.IsProcessing = true;
