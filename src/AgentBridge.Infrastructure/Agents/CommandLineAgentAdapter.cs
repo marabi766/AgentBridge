@@ -39,7 +39,8 @@ public sealed record CommandLineInvocation
 /// has to be found and focused. Here there is no window, so they succeed
 /// immediately — that is the point of this adapter, not an omission.
 /// </summary>
-public abstract class CommandLineAgentAdapter : IAgentAdapter, IReportsRunOutcome, IContinuesItsLastSession, IDisposable
+public abstract class CommandLineAgentAdapter
+    : IAgentAdapter, IReportsRunOutcome, IContinuesItsLastSession, IWaitsOutQuotaLimits, IDisposable
 {
     /// <summary>
     /// Under this, a failed run cannot have done the work. These agents read a
@@ -256,6 +257,30 @@ public abstract class CommandLineAgentAdapter : IAgentAdapter, IReportsRunOutcom
         return await IsApplicationRunningAsync(cancellationToken).ConfigureAwait(false)
             ? AgentStatus.Ready
             : AgentStatus.NotRunning;
+    }
+
+    /// <summary>
+    /// Drops the announced reset, so the next status poll reports the agent as
+    /// available. Used when the operator has signed the CLI into an account that
+    /// still has allowance and the wait no longer means anything.
+    /// </summary>
+    public void ForgetAnnouncedQuotaWait()
+    {
+        var hadWait = false;
+        lock (_quotaGate)
+        {
+            if (_quotaResetsAtUtc is not null)
+            {
+                _quotaResetsAtUtc = null;
+                hadWait = true;
+            }
+        }
+
+        if (hadWait)
+        {
+            _logger.LogInformation(
+                "{Agent} allowance wait cleared on request; treating it as available again.", Name);
+        }
     }
 
     /// <summary>

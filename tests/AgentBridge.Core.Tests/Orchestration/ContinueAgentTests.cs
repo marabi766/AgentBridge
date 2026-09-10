@@ -102,6 +102,65 @@ public sealed class ContinueAgentTests
         Assert.Equal(["continue"], harness.ClaudeAdapter.State.ResumedMessages);
     }
 
+    [Fact]
+    public async Task ContinuingDuringAnAllowanceWaitClearsItAndDoesNotLetTheProbeResendOnTop()
+    {
+        // The operator's whole reason for the button: the agent ran out of
+        // allowance, they signed the CLI into another account that still has
+        // some, and they want it to carry on now — not after the announced
+        // reset, and not from a fresh instruction.
+        var harness = new OrchestratorTestHarness();
+        harness.ClaudeAdapter.State.BecomesBusyOnSend = true;
+
+        await harness.Orchestrator.StartAtAsync(BridgeStartPoint.WaitForCodexPrompt, CancellationToken.None);
+        harness.CodexWatcher.RaiseStableChange("next task", "codex-hash-1");
+        await WaitUntilSentAsync(harness, 1);
+
+        // Claude stops, out of allowance, with a reset hours away.
+        harness.ClaudeAdapter.State.IsProcessing = false;
+        harness.ClaudeAdapter.State.Status = AgentStatus.RateLimited;
+        await WaitUntilAsync(
+            () => harness.ClaudeAdapter.State.Status == AgentStatus.RateLimited
+                && LastAction(harness).Contains("allowance", StringComparison.OrdinalIgnoreCase),
+            "the bridge to enter the allowance wait");
+
+        await harness.Orchestrator.ContinueClaudeAsync(CancellationToken.None);
+
+        // The announced wait was dropped and the nudge went into the session.
+        Assert.Equal(1, harness.ClaudeAdapter.State.ForgetAnnouncedQuotaWaitCallCount);
+        Assert.Equal(["continue"], harness.ClaudeAdapter.State.ResumedMessages);
+
+        // The continue run finishes by writing the report; the loop advances.
+        harness.ClaudeAdapter.State.IsProcessing = false;
+        harness.ClaudeWatcher.RaiseStableChange("done", "claude-hash-1");
+        await harness.WaitForStateAsync(BridgeState.WaitingForCodexPrompt, TimeSpan.FromSeconds(30));
+
+        // Give the probe that had been counting down to the old reset time every
+        // chance to wake and resend the iteration-1 instruction on top. It must
+        // not: only the original instruction and the one-word continue were sent.
+        await Task.Delay(TimeSpan.FromSeconds(8));
+        Assert.Equal(2, harness.ClaudeAdapter.State.SendMessageCallCount);
+    }
+
+    private static string LastAction(OrchestratorTestHarness harness) =>
+        harness.Orchestrator.GetStatusAsync(CancellationToken.None).GetAwaiter().GetResult().LastAction ?? "";
+
+    private static async Task WaitUntilAsync(Func<bool> condition, string what)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(20);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (condition())
+            {
+                return;
+            }
+
+            await Task.Delay(50);
+        }
+
+        throw new TimeoutException($"Timed out waiting for {what}.");
+    }
+
     private static async Task WaitUntilSentAsync(OrchestratorTestHarness harness, int count)
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(20);

@@ -55,6 +55,9 @@ public sealed class FakeAgentAdapterState
     /// </summary>
     public List<string> ResumedMessages { get; } = [];
 
+    /// <summary>How many times an operator override cleared this agent's announced allowance wait.</summary>
+    public int ForgetAnnouncedQuotaWaitCallCount { get; internal set; }
+
     public int IsApplicationRunningCallCount { get; internal set; }
 
     public int IsReadyCallCount { get; internal set; }
@@ -88,5 +91,6 @@ public sealed class FakeAgentAdapterState
         SendMessageCallCount = 0;
         SentMessages.Clear();
         ResumedMessages.Clear();
+        ForgetAnnouncedQuotaWaitCallCount = 0;
     }
 }

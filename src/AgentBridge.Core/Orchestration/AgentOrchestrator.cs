@@ -75,6 +75,14 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
     private AgentStatus _lastCodexAgentStatus = AgentStatus.Unknown;
     private int _claudeCompletionProbeActive;
     private int _codexCompletionProbeActive;
+    // Bumped whenever the operator hands a delivery to an agent by hand — Continue
+    // or Retry. The completion probe captures this on entry and, when it changes,
+    // re-observes the new delivery from the top instead of resending the
+    // iteration's instruction on top of it. Without this a manual Continue during
+    // an allowance wait would be followed, minutes later, by an automatic full
+    // resend from the probe that was still counting down to the old reset.
+    private long _claudeDeliveryEpoch;
+    private long _codexDeliveryEpoch;
     // How many times in a row an exhausted allowance has been waited out and the
     // instruction resent, per role. Reset once the agent delivers its file, so
     // the count only ever describes one stuck iteration.
@@ -268,6 +276,7 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
                 throw new InvalidOperationException("There is no verified Codex prompt available to resend.");
             }
 
+            TakeOverDelivery(AgentRole.Claude);
             Transition(BridgeState.WaitingForClaude, $"Retrying Claude delivery for iteration {_currentIteration}");
             await PersistStateAsync(cancellationToken).ConfigureAwait(false);
             await InvokeClaudeAsync(cancellationToken).ConfigureAwait(false);
@@ -314,6 +323,7 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             claudeWatcher = _claudeWatcher;
             codexWatcher = _codexWatcher;
 
+            TakeOverDelivery(AgentRole.Codex);
             _lastError = null;
             Transition(BridgeState.WaitingForCodex, $"Retrying Codex delivery for iteration {_currentIteration}");
             await PersistStateAsync(cancellationToken).ConfigureAwait(false);
@@ -333,6 +343,26 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
 
     public Task ContinueCodexAsync(CancellationToken cancellationToken) =>
         ContinueAgentAsync(AgentRole.Codex, cancellationToken);
+
+    private long CurrentDeliveryEpoch(AgentRole role) =>
+        Interlocked.Read(ref role == AgentRole.Claude ? ref _claudeDeliveryEpoch : ref _codexDeliveryEpoch);
+
+    /// <summary>
+    /// Records that the operator is taking a delivery over by hand. Any probe
+    /// still watching the previous attempt will see the epoch move and step
+    /// aside; an announced allowance wait is dropped, because the operator
+    /// arranging capacity the bridge cannot see is the whole reason to override
+    /// it. Callers hold <see cref="_actionLock"/>.
+    /// </summary>
+    private void TakeOverDelivery(AgentRole role)
+    {
+        Interlocked.Increment(ref role == AgentRole.Claude ? ref _claudeDeliveryEpoch : ref _codexDeliveryEpoch);
+
+        if (_agentAdapterProvider.GetAdapter(role) is IWaitsOutQuotaLimits waitsOutQuota)
+        {
+            waitsOutQuota.ForgetAnnouncedQuotaWait();
+        }
+    }
 
     /// <summary>
     /// Nudges an agent that stopped short back into the work it was already
@@ -374,6 +404,7 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
                 _codexWatcher!.Start();
             }
 
+            TakeOverDelivery(role);
             _lastError = null;
             Transition(target, $"Continuing {role} for iteration {_currentIteration}");
             await PersistStateAsync(cancellationToken).ConfigureAwait(false);
@@ -885,6 +916,11 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             // resent run would go unwatched and the wait would never end.
             while (true)
             {
+                // The delivery this pass is watching. If the operator takes over
+                // with Continue or Retry, this moves, and the pass re-observes
+                // the new delivery from the top rather than resending on top of it.
+                var epoch = CurrentDeliveryEpoch(role);
+
                 // Whether this pass ever actually saw the agent working. It is the
                 // difference between "finished without doing its part" and "has not
                 // started yet", and only the first is a fault. A desktop agent that
@@ -901,6 +937,15 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
 
                 while (true)
                 {
+                    if (CurrentDeliveryEpoch(role) != epoch)
+                    {
+                        // A manual Continue or Retry has replaced the delivery
+                        // this inner loop was waiting on — including waiting out
+                        // an allowance the operator has now worked around. Drop
+                        // out and re-observe from the top.
+                        break;
+                    }
+
                     var processing = await adapter.IsProcessingAsync(cancellationToken).ConfigureAwait(false);
                     var status = processing
                         ? AgentStatus.Busy
@@ -944,12 +989,22 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
                     await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
                 }
 
+                if (CurrentDeliveryEpoch(role) != epoch)
+                {
+                    // The operator took the delivery over while this pass was
+                    // watching. Its own invocation has already started a fresh
+                    // watch through StartCompletionWatchdog; loop round to pick
+                    // up the new attempt rather than resending anything.
+                    _logger.LogInformation("{Agent} delivery was taken over by the operator; re-observing.", role);
+                    continue;
+                }
+
                 _logger.LogInformation("{Agent} processing finished; rechecking its protocol file.", role);
                 await watcher.CheckNowAsync(cancellationToken).ConfigureAwait(false);
 
                 if (everWaitedForQuota)
                 {
-                    if (await ResendAfterTheAllowanceResetAsync(role, cancellationToken).ConfigureAwait(false))
+                    if (await ResendAfterTheAllowanceResetAsync(role, epoch, cancellationToken).ConfigureAwait(false))
                     {
                         continue;
                     }
@@ -964,12 +1019,12 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
                     // retry is watched the same way the first attempt was;
                     // resending with nothing observing it is how a retry silently
                     // becomes a stall.
-                    if (await ResendAfterAFailedRunAsync(role, cancellationToken).ConfigureAwait(false))
+                    if (await ResendAfterAFailedRunAsync(role, epoch, cancellationToken).ConfigureAwait(false))
                     {
                         continue;
                     }
 
-                    await FailIfTheAgentProducedNothingAsync(role, cancellationToken).ConfigureAwait(false);
+                    await FailIfTheAgentProducedNothingAsync(role, epoch, cancellationToken).ConfigureAwait(false);
                 }
 
                 break;
@@ -1068,11 +1123,19 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
     /// lets the probe loop round and watch the retry. A retry nothing is watching
     /// is how one silently becomes a stall.
     /// </summary>
-    private async Task<bool> ResendAfterAFailedRunAsync(AgentRole role, CancellationToken cancellationToken)
+    private async Task<bool> ResendAfterAFailedRunAsync(
+        AgentRole role, long expectedEpoch, CancellationToken cancellationToken)
     {
         var adapter = _agentAdapterProvider.GetAdapter(role);
         if (adapter is not IReportsRunOutcome { LastRunFailedWithoutWorking: true })
         {
+            return false;
+        }
+
+        if (CurrentDeliveryEpoch(role) != expectedEpoch)
+        {
+            // The operator has taken this delivery over by hand; its own watch
+            // is now in charge.
             return false;
         }
 
@@ -1105,7 +1168,7 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             var waitingState = role == AgentRole.Claude
                 ? BridgeState.WaitingForClaudeReport
                 : BridgeState.WaitingForCodexPrompt;
-            if (_stateMachine.Current != waitingState)
+            if (_stateMachine.Current != waitingState || CurrentDeliveryEpoch(role) != expectedEpoch)
             {
                 return false;
             }
@@ -1129,7 +1192,8 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
         }
     }
 
-    private async Task<bool> ResendAfterTheAllowanceResetAsync(AgentRole role, CancellationToken cancellationToken)
+    private async Task<bool> ResendAfterTheAllowanceResetAsync(
+        AgentRole role, long expectedEpoch, CancellationToken cancellationToken)
     {
         await Task.Delay(FileArrivalGrace, cancellationToken).ConfigureAwait(false);
 
@@ -1141,7 +1205,7 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
                 : BridgeState.WaitingForCodexPrompt;
 
             // The agent did deliver after all, or the operator intervened.
-            if (_stateMachine.Current != waitingState)
+            if (_stateMachine.Current != waitingState || CurrentDeliveryEpoch(role) != expectedEpoch)
             {
                 return false;
             }
@@ -1200,7 +1264,8 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
     /// it for hours. An explicit Error at least says which agent stopped and what
     /// file it did not write.
     /// </summary>
-    private async Task FailIfTheAgentProducedNothingAsync(AgentRole role, CancellationToken cancellationToken)
+    private async Task FailIfTheAgentProducedNothingAsync(
+        AgentRole role, long expectedEpoch, CancellationToken cancellationToken)
     {
         // The recheck above can raise a change whose handler is still running.
         // Concluding before it has had its chance would report a failure for a
@@ -1215,9 +1280,12 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
                 : (BridgeState.WaitingForCodexPrompt, _codexInstructionSentAtUtc, _configuration.CodexPromptFileName);
 
             // Still waiting on the very instruction this probe was watching. Any
-            // other state — the file arrived, the operator paused, the run was
-            // stopped — means there is nothing to report.
-            if (_stateMachine.Current != waitingState || sentAtUtc is null)
+            // other state — the file arrived, the operator paused or took the
+            // delivery over, the run was stopped — means there is nothing to
+            // report.
+            if (_stateMachine.Current != waitingState
+                || sentAtUtc is null
+                || CurrentDeliveryEpoch(role) != expectedEpoch)
             {
                 return;
             }

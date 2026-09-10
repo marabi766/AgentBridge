@@ -60,6 +60,24 @@ Both output pumps must be drained. A process whose output nobody reads blocks
 when its pipe buffer fills, which looks exactly like an agent that never
 finishes.
 
+### Continue, Retry, and the completion probe
+
+`Continue Claude` / `Continue Codex` send one word (`"continue"`) into the agent's
+*existing* session — `--continue` for Claude, `resume --last` after the verb for
+Codex (`CommandLineAgentAdapter.ResumeArguments`). A command line run has no
+memory of the last one, so the word only means something if the session comes
+back with it.
+
+Any operator-driven delivery — Continue or either Retry — calls `TakeOverDelivery`,
+which bumps a per-role `_*DeliveryEpoch` and clears the adapter's announced
+allowance wait (`IWaitsOutQuotaLimits.ForgetAnnouncedQuotaWait`). The running
+`WaitForAgentCompletionAndRecheckAsync` probe captures the epoch and, when it
+moves, re-observes the new delivery from the top instead of resending. The
+resend/fail helpers re-check the epoch after taking `_actionLock`. Without all of
+this, a manual Continue during an allowance wait is followed minutes later by an
+automatic full resend from the probe that was still counting down to the old
+reset — the operator switched accounts precisely so that wait no longer applies.
+
 ### Reading what an agent printed
 
 `AgentQuotaSignal` and `AgentStreamLine` both parse agent output. **Every pattern
@@ -100,10 +118,15 @@ not at startup, so changing it in Settings takes effect without a restart.
 
 No test project references `AgentBridge.App`. Command availability
 (`CanRetryClaude`, `CanResetState`, …) and XAML bindings are verified only by
-running the application. Two shipped bugs came from this: Reset was gated on
-`HasError` and unreachable in the state that needed it, and the tray showed
-`SystemIcons.Application` instead of the app's own icon. Check button states on
-screen before claiming a UI change works.
+running the application. Three shipped bugs came from this: Reset was gated on
+`HasError` and unreachable in the state that needed it; the tray showed
+`SystemIcons.Application` instead of the app's own icon; and the Continue buttons
+sat permanently disabled because `RaiseStatusProperties()` raised the
+`CanContinue*` property-change notifications but not the matching
+`Continue*Command.RaiseCanExecuteChanged()` — `AsyncCommand` does not hook
+`CommandManager.RequerySuggested`, so a new command needs its `.RaiseCanExecuteChanged()`
+line added there by hand or it never re-evaluates. Check button states on screen
+before claiming a UI change works.
 
 ## Icons
 

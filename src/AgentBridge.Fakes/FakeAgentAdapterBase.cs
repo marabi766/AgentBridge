@@ -4,7 +4,7 @@ using AgentBridge.Abstractions.Models;
 namespace AgentBridge.Fakes;
 
 public abstract class FakeAgentAdapterBase(string name, AgentRole role)
-    : IAgentAdapter, IReportsRunOutcome, IContinuesItsLastSession
+    : IAgentAdapter, IReportsRunOutcome, IContinuesItsLastSession, IWaitsOutQuotaLimits
 {
     public string Name { get; } = name;
 
@@ -94,6 +94,19 @@ public abstract class FakeAgentAdapterBase(string name, AgentRole role)
     }
 
     public Task<AgentStatus> GetStatusAsync(CancellationToken cancellationToken) => Task.FromResult(State.Status);
+
+    /// <summary>
+    /// Mirrors the real adapter: an operator override clears the rate-limited
+    /// status so the run is treated as able to proceed again.
+    /// </summary>
+    public void ForgetAnnouncedQuotaWait()
+    {
+        State.ForgetAnnouncedQuotaWaitCallCount++;
+        if (State.Status == AgentStatus.RateLimited)
+        {
+            State.Status = AgentStatus.Ready;
+        }
+    }
 
     public bool LastRunFailedWithoutWorking => State.LastRunFailedWithoutWorking;
 

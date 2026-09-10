@@ -821,6 +821,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         ResumeCommand.RaiseCanExecuteChanged();
         RetryClaudeCommand.RaiseCanExecuteChanged();
         RetryCodexCommand.RaiseCanExecuteChanged();
+        ContinueClaudeCommand.RaiseCanExecuteChanged();
+        ContinueCodexCommand.RaiseCanExecuteChanged();
         ContinueWaitingForClaudeCommand.RaiseCanExecuteChanged();
         ContinueWaitingForCodexCommand.RaiseCanExecuteChanged();
         StopCommand.RaiseCanExecuteChanged();
