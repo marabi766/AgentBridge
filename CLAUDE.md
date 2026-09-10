@@ -80,16 +80,17 @@ comments and lines without `=` are skipped rather than failing the run.
 ### Continue, Retry, and the completion probe
 
 `Continue Claude` / `Continue Codex` send one word (`"continue"`) into the agent's
-*existing* session. **Do not gate them on the iteration counter the way Retry is
-gated.** Retry resends the instruction the bridge is holding and has none at
-iteration zero; Continue speaks to a session that exists on disk regardless of
-what the bridge has counted. Copying Retry's guard onto the Continue buttons
-disabled them for a run that had been reset and restarted at a checkpoint —
-exactly the case they were added for. The orchestrator never had that guard;
-only the desktop did — `--continue` for Claude, `resume --last` after the verb for
+*existing* session — `--continue` for Claude, `resume --last` after the verb for
 Codex (`CommandLineAgentAdapter.ResumeArguments`). A command line run has no
 memory of the last one, so the word only means something if the session comes
 back with it.
+
+**Do not gate them on the iteration counter the way Retry is gated.** Retry
+resends the instruction the bridge is holding and has none at iteration zero;
+Continue speaks to a session that exists on disk regardless of what the bridge
+has counted. Copying Retry's guard onto the Continue buttons disabled them for a
+run that had been reset and restarted at a checkpoint — exactly the case they
+were added for. The orchestrator never had that guard; only the desktop did.
 
 Any operator-driven delivery — Continue or either Retry — calls `TakeOverDelivery`,
 which bumps a per-role `_*DeliveryEpoch` and clears the adapter's announced
