@@ -35,6 +35,16 @@ public interface IOrchestratorService
     Task ContinueCodexAsync(CancellationToken cancellationToken);
 
     /// <summary>
+    /// Tells Claude its last run was cut short rather than finished, and to
+    /// establish from the repository what actually got done before carrying on.
+    /// Like Continue, it neither advances the cycle nor resets it.
+    /// </summary>
+    Task RecoverClaudeAsync(CancellationToken cancellationToken);
+
+    /// <summary>Tells Codex its last run was cut short rather than finished.</summary>
+    Task RecoverCodexAsync(CancellationToken cancellationToken);
+
+    /// <summary>
     /// Opens a Claude session the operator can drive from another device and
     /// returns its link. Does not touch the cycle: the session is a copy of the
     /// conversation, opened alongside the run rather than inside it.

@@ -128,6 +128,17 @@ public sealed record BridgeConfiguration
 
     public string CodexInstructionTemplate { get; init; } = DefaultTemplates.CodexInstruction;
 
+    /// <summary>
+    /// What an agent is told after its run was cut short — a shutdown, a crash,
+    /// the application closing — rather than finishing. Distinct from the one
+    /// word Continue sends, because the two situations differ in what the agent
+    /// can trust: a session that merely paused still knows what it did, while
+    /// one killed mid-edit may believe it finished work that never reached disk.
+    /// </summary>
+    public string ClaudeRecoveryTemplate { get; init; } = DefaultTemplates.ClaudeRecovery;
+
+    public string CodexRecoveryTemplate { get; init; } = DefaultTemplates.CodexRecovery;
+
     // --- File watcher tuning ---
     public int FileDebounceMilliseconds { get; init; } = 400;
 
@@ -218,6 +229,40 @@ public static class DefaultTemplates
         Do not ask the user to manually copy anything.
 
         When you have finished writing the next prompt, ensure {{promptFile}} contains the complete latest prompt.
+        """;
+
+    public const string ClaudeRecovery = """
+        Your previous run on this task was interrupted before it finished. The machine was shut down, or the application driving you was closed. No report was written, so the work stopped wherever it happened to be.
+
+        Do not assume anything you remember doing was completed. An edit you believe you made may never have reached disk, and a command you believe ran may have been killed part way.
+
+        Establish the facts first. Inspect the actual current state of the repository at {{projectPath}}: the working tree, `git status`, the Git diff, and the results of the relevant tests. Read {{promptFile}} again and compare what it asked for against what is genuinely there now.
+
+        Then finish whatever remains of that task.
+
+        This is iteration {{iteration}} of at most {{maxIterations}}, on branch {{currentBranch}}.
+
+        Do not start anything new, and do not redo work that is already complete and correct.
+
+        Do not modify {{promptFile}}.
+
+        When the task is complete, replace the contents of {{reportFile}} with the report, and say in it which parts you found already done and which you had to finish.
+        """;
+
+    public const string CodexRecovery = """
+        Your previous run on this task was interrupted before it finished. The machine was shut down, or the application driving you was closed. No prompt was written, so your review stopped wherever it happened to be.
+
+        Do not assume anything you remember doing was completed.
+
+        Establish the facts first. Inspect the actual current state of the repository at {{projectPath}}: the working tree, `git status`, the Git diff, and the results of the relevant tests. Read {{reportFile}} again and review what Claude actually implemented, against the repository rather than against the report.
+
+        Then finish your review and determine the next concrete engineering step.
+
+        This is iteration {{iteration}} of at most {{maxIterations}}, on branch {{currentBranch}}.
+
+        Do not modify {{reportFile}}.
+
+        When you have finished, replace the contents of {{promptFile}} with ONLY the actionable prompt Claude should execute next.
         """;
 
     public const string ClaudeInstruction = """

@@ -125,6 +125,8 @@
                             <Button Content="↻ Retry Claude" Command="{Binding RetryClaudeCommand}" automation:AutomationProperties.HelpText="Resends the current Codex instruction to Claude without resetting iteration progress." />
                             <Button Content="▸ Continue Claude" Command="{Binding ContinueClaudeCommand}" automation:AutomationProperties.HelpText="Asks Claude to carry on with the session it was already having, without resending the instruction." />
                             <Button Content="▸ Continue Codex" Command="{Binding ContinueCodexCommand}" automation:AutomationProperties.HelpText="Asks Codex to carry on with the session it was already having, without resending the instruction." />
+                            <Button Content="⟲ Recover Claude" Command="{Binding RecoverClaudeCommand}" automation:AutomationProperties.HelpText="Use after a shutdown or crash. Tells Claude its run was cut short, so it checks the repository for what actually got done before finishing the task." />
+                            <Button Content="⟲ Recover Codex" Command="{Binding RecoverCodexCommand}" automation:AutomationProperties.HelpText="Use after a shutdown or crash. Tells Codex its run was cut short, so it checks the repository before finishing its review." />
                             <Button Content="■ Stop" Command="{Binding StopCommand}" Foreground="{DynamicResource ErrorBrush}" />
                             <Button Content="↻ Refresh" Command="{Binding RefreshCommand}" />
                             <Button Content="Reset state…" Command="{Binding ResetStateCommand}"

@@ -105,6 +105,12 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         ContinueCodexCommand = new AsyncCommand(
             () => RunOperationAsync("Asking Codex to continue…", _orchestrator.ContinueCodexAsync),
             () => CanContinueCodex);
+        RecoverClaudeCommand = new AsyncCommand(
+            () => RunOperationAsync("Telling Claude its run was cut short…", _orchestrator.RecoverClaudeAsync),
+            () => CanContinueClaude);
+        RecoverCodexCommand = new AsyncCommand(
+            () => RunOperationAsync("Telling Codex its run was cut short…", _orchestrator.RecoverCodexAsync),
+            () => CanContinueCodex);
         OpenRemoteControlCommand = new AsyncCommand(OpenRemoteControlAsync, () => CanOpenRemoteControl);
         ContinueWaitingForClaudeCommand = new AsyncCommand(
             () => RunOperationAsync("Continuing to wait for Claude…", _orchestrator.ContinueWaitingForClaudeAsync),
@@ -135,6 +141,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public AsyncCommand RetryCodexCommand { get; }
     public AsyncCommand ContinueClaudeCommand { get; }
     public AsyncCommand ContinueCodexCommand { get; }
+    public AsyncCommand RecoverClaudeCommand { get; }
+    public AsyncCommand RecoverCodexCommand { get; }
     public AsyncCommand OpenRemoteControlCommand { get; }
     public AsyncCommand ContinueWaitingForClaudeCommand { get; }
     public AsyncCommand ContinueWaitingForCodexCommand { get; }
@@ -954,6 +962,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         RetryCodexCommand.RaiseCanExecuteChanged();
         ContinueClaudeCommand.RaiseCanExecuteChanged();
         ContinueCodexCommand.RaiseCanExecuteChanged();
+        RecoverClaudeCommand.RaiseCanExecuteChanged();
+        RecoverCodexCommand.RaiseCanExecuteChanged();
         OpenRemoteControlCommand.RaiseCanExecuteChanged();
         ContinueWaitingForClaudeCommand.RaiseCanExecuteChanged();
         ContinueWaitingForCodexCommand.RaiseCanExecuteChanged();

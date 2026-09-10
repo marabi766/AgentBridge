@@ -339,10 +339,46 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
     }
 
     public Task ContinueClaudeAsync(CancellationToken cancellationToken) =>
-        ContinueAgentAsync(AgentRole.Claude, cancellationToken);
+        ResumeAgentAsync(AgentRole.Claude, ContinueInstruction, "Continuing", cancellationToken);
 
     public Task ContinueCodexAsync(CancellationToken cancellationToken) =>
-        ContinueAgentAsync(AgentRole.Codex, cancellationToken);
+        ResumeAgentAsync(AgentRole.Codex, ContinueInstruction, "Continuing", cancellationToken);
+
+    public async Task RecoverClaudeAsync(CancellationToken cancellationToken) =>
+        await ResumeAgentAsync(
+            AgentRole.Claude,
+            await RenderRecoveryAsync(AgentRole.Claude, cancellationToken).ConfigureAwait(false),
+            "Recovering",
+            cancellationToken).ConfigureAwait(false);
+
+    public async Task RecoverCodexAsync(CancellationToken cancellationToken) =>
+        await ResumeAgentAsync(
+            AgentRole.Codex,
+            await RenderRecoveryAsync(AgentRole.Codex, cancellationToken).ConfigureAwait(false),
+            "Recovering",
+            cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// What an agent is told after its run was cut short rather than paused.
+    ///
+    /// Continue's one word assumes the session's own account of itself is true.
+    /// After a shutdown it is not: the agent can believe it finished an edit
+    /// that never reached disk, or ran a command that was killed part way. So
+    /// this one says so, and sends it back to the repository for the facts
+    /// before it does anything else.
+    /// </summary>
+    private async Task<string> RenderRecoveryAsync(AgentRole role, CancellationToken cancellationToken)
+    {
+        var branch = await SafeRefreshGitStatusAsync(cancellationToken).ConfigureAwait(false);
+        var variables = TemplateVariableBuilder.Build(
+            _configuration.ProjectPath, _currentIteration, _configuration.MaximumIterations,
+            _configuration.ClaudeReportFileName, _configuration.CodexPromptFileName,
+            branch, _lastClaudeReportHash, _lastCodexPromptHash);
+        var template = role == AgentRole.Claude
+            ? _configuration.ClaudeRecoveryTemplate
+            : _configuration.CodexRecoveryTemplate;
+        return _templateEngine.Render(template, variables);
+    }
 
     /// <summary>
     /// Opens a remote control session on Claude.
@@ -417,7 +453,8 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
     /// continuing is a judgement about the repository, not about anything the
     /// bridge can observe, so it stays a button rather than a rule.
     /// </summary>
-    private async Task ContinueAgentAsync(AgentRole role, CancellationToken cancellationToken)
+    private async Task ResumeAgentAsync(
+        AgentRole role, string message, string verb, CancellationToken cancellationToken)
     {
         await _actionLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -449,16 +486,16 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
 
             TakeOverDelivery(role);
             _lastError = null;
-            Transition(target, $"Continuing {role} for iteration {_currentIteration}");
+            Transition(target, $"{verb} {role} for iteration {_currentIteration}");
             await PersistStateAsync(cancellationToken).ConfigureAwait(false);
 
             if (role == AgentRole.Claude)
             {
-                await InvokeClaudeAsync(cancellationToken, continueLastSession: true).ConfigureAwait(false);
+                await InvokeClaudeAsync(cancellationToken, message).ConfigureAwait(false);
             }
             else
             {
-                await InvokeCodexAsync(cancellationToken, continueLastSession: true).ConfigureAwait(false);
+                await InvokeCodexAsync(cancellationToken, message).ConfigureAwait(false);
             }
         }
         finally
@@ -1376,12 +1413,16 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
         }
     }
 
-    private async Task InvokeCodexAsync(CancellationToken cancellationToken, bool continueLastSession = false)
+    /// <summary>
+    /// A null <paramref name="resumeMessage"/> is a fresh instruction from the
+    /// template; anything else is sent into the session the agent already has.
+    /// </summary>
+    private async Task InvokeCodexAsync(CancellationToken cancellationToken, string? resumeMessage = null)
     {
         Transition(
             BridgeState.CodexProcessing,
-            continueLastSession
-                ? $"Asking Codex to continue iteration {_currentIteration}"
+            resumeMessage is not null
+                ? $"Asking Codex to pick up iteration {_currentIteration}"
                 : $"Invoking Codex for iteration {_currentIteration}");
         await PersistStateAsync(cancellationToken).ConfigureAwait(false);
 
@@ -1390,12 +1431,12 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             _configuration.ProjectPath, _currentIteration, _configuration.MaximumIterations,
             _configuration.ClaudeReportFileName, _configuration.CodexPromptFileName,
             branch, _lastClaudeReportHash, _lastCodexPromptHash);
-        var message = continueLastSession
-            ? ContinueInstruction
-            : _templateEngine.Render(_configuration.CodexInstructionTemplate, variables);
+        var message = resumeMessage
+            ?? _templateEngine.Render(_configuration.CodexInstructionTemplate, variables);
 
         var adapter = _agentAdapterProvider.GetAdapter(AgentRole.Codex);
-        var success = await InvokeAgentAsync(adapter, message, continueLastSession, cancellationToken).ConfigureAwait(false);
+        var success = await InvokeAgentAsync(
+            adapter, message, resumeMessage is not null, cancellationToken).ConfigureAwait(false);
 
         if (!success)
         {
@@ -1417,12 +1458,16 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
         await NotifyAsync("Agent Bridge", $"Codex is reviewing iteration {_currentIteration}.", NotificationLevel.Info, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task InvokeClaudeAsync(CancellationToken cancellationToken, bool continueLastSession = false)
+    /// <summary>
+    /// A null <paramref name="resumeMessage"/> is a fresh instruction from the
+    /// template; anything else is sent into the session the agent already has.
+    /// </summary>
+    private async Task InvokeClaudeAsync(CancellationToken cancellationToken, string? resumeMessage = null)
     {
         Transition(
             BridgeState.ClaudeProcessing,
-            continueLastSession
-                ? $"Asking Claude to continue iteration {_currentIteration}"
+            resumeMessage is not null
+                ? $"Asking Claude to pick up iteration {_currentIteration}"
                 : $"Invoking Claude for iteration {_currentIteration}");
         await PersistStateAsync(cancellationToken).ConfigureAwait(false);
 
@@ -1431,12 +1476,12 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             _configuration.ProjectPath, _currentIteration, _configuration.MaximumIterations,
             _configuration.ClaudeReportFileName, _configuration.CodexPromptFileName,
             branch, _lastClaudeReportHash, _lastCodexPromptHash);
-        var message = continueLastSession
-            ? ContinueInstruction
-            : _templateEngine.Render(_configuration.ClaudeInstructionTemplate, variables);
+        var message = resumeMessage
+            ?? _templateEngine.Render(_configuration.ClaudeInstructionTemplate, variables);
 
         var adapter = _agentAdapterProvider.GetAdapter(AgentRole.Claude);
-        var success = await InvokeAgentAsync(adapter, message, continueLastSession, cancellationToken).ConfigureAwait(false);
+        var success = await InvokeAgentAsync(
+            adapter, message, resumeMessage is not null, cancellationToken).ConfigureAwait(false);
 
         if (!success)
         {

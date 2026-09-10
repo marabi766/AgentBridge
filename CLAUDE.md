@@ -92,7 +92,15 @@ has counted. Copying Retry's guard onto the Continue buttons disabled them for a
 run that had been reset and restarted at a checkpoint — exactly the case they
 were added for. The orchestrator never had that guard; only the desktop did.
 
-Any operator-driven delivery — Continue or either Retry — calls `TakeOverDelivery`,
+`Recover Claude` / `Recover Codex` take the same route through `ResumeAgentAsync`
+and differ only in the message: a rendered `*RecoveryTemplate` instead of the one
+word. The distinction is what the agent may trust. A session that merely paused
+still knows what it did; one killed mid-edit can believe it finished work that
+never reached disk, so the recovery message says the run was cut short and sends
+it to `git status` and the diff for the facts before it carries on. Both keep the
+iteration where it was — the same task is being finished, not a new one started.
+
+Any operator-driven delivery — Continue, Recover or either Retry — calls `TakeOverDelivery`,
 which bumps a per-role `_*DeliveryEpoch` and clears the adapter's announced
 allowance wait (`IWaitsOutQuotaLimits.ForgetAnnouncedQuotaWait`). The running
 `WaitForAgentCompletionAndRecheckAsync` probe captures the epoch and, when it

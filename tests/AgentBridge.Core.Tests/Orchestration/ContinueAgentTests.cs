@@ -165,6 +165,57 @@ public sealed class ContinueAgentTests
         Assert.Equal(["continue"], harness.ClaudeAdapter.State.ResumedMessages);
     }
 
+    [Fact]
+    public async Task RecoverSendsTheFactsInsteadOfOneWord()
+    {
+        // After a shutdown the session's own account of itself cannot be
+        // trusted: it can believe it finished an edit that never reached disk.
+        // "continue" would have it carry on from that belief, so Recover says
+        // what happened and sends it to the repository for the facts first.
+        var harness = new OrchestratorTestHarness();
+        harness.ClaudeAdapter.State.BecomesBusyOnSend = true;
+
+        await harness.Orchestrator.StartAtAsync(BridgeStartPoint.WaitForCodexPrompt, CancellationToken.None);
+        harness.CodexWatcher.RaiseStableChange("next task", "codex-hash-1");
+        await WaitUntilSentAsync(harness, 1);
+
+        harness.ClaudeAdapter.State.IsProcessing = false;
+        await harness.Orchestrator.RecoverClaudeAsync(CancellationToken.None);
+
+        var recovery = harness.ClaudeAdapter.State.SentMessages[1];
+        Assert.NotEqual("continue", recovery);
+        Assert.Contains("interrupted", recovery, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("git", recovery, StringComparison.OrdinalIgnoreCase);
+
+        // Still into the existing session, and still not a new iteration: it is
+        // the same task being finished, not a different one being started.
+        Assert.Equal([recovery], harness.ClaudeAdapter.State.ResumedMessages);
+        var status = await harness.Orchestrator.GetStatusAsync(CancellationToken.None);
+        Assert.Equal(1, status.CurrentIteration);
+    }
+
+    [Fact]
+    public async Task RecoverNamesTheProtocolFilesTheOperatorConfigured()
+    {
+        // The template refers to both files by name. Hard-coding the defaults
+        // would send an agent looking for a file that is not what this project
+        // calls it.
+        var harness = new OrchestratorTestHarness();
+        harness.ClaudeAdapter.State.BecomesBusyOnSend = true;
+
+        await harness.Orchestrator.StartAtAsync(BridgeStartPoint.WaitForCodexPrompt, CancellationToken.None);
+        harness.CodexWatcher.RaiseStableChange("next task", "codex-hash-1");
+        await WaitUntilSentAsync(harness, 1);
+
+        harness.ClaudeAdapter.State.IsProcessing = false;
+        await harness.Orchestrator.RecoverClaudeAsync(CancellationToken.None);
+
+        var recovery = harness.ClaudeAdapter.State.SentMessages[1];
+        Assert.DoesNotContain("{{", recovery, StringComparison.Ordinal);
+        Assert.Contains("CodexPrompt.md", recovery, StringComparison.Ordinal);
+        Assert.Contains("ClaudeResultReport.md", recovery, StringComparison.Ordinal);
+    }
+
     private static string LastAction(OrchestratorTestHarness harness) =>
         harness.Orchestrator.GetStatusAsync(CancellationToken.None).GetAwaiter().GetResult().LastAction ?? "";
 
