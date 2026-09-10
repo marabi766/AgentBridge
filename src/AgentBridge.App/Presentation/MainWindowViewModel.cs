@@ -47,6 +47,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private string _codexCliExecutable = "codex";
     private string _codexCliArguments = string.Empty;
     private int _codexCliTimeoutSeconds = 1800;
+    private string _agentEnvironment = string.Empty;
     private BridgeStartPoint _selectedStartPoint = BridgeStartPoint.WaitForClaudeReport;
     private int _setupStep = 1;
     private string _setupValidation = "No project validation has run yet.";
@@ -397,6 +398,13 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public string CodexCliArguments { get => _codexCliArguments; set => SetProperty(ref _codexCliArguments, value); }
 
     public int CodexCliTimeoutSeconds { get => _codexCliTimeoutSeconds; set => SetProperty(ref _codexCliTimeoutSeconds, value); }
+
+    /// <summary>
+    /// Extra environment for every agent process, one KEY=VALUE per line. Empty
+    /// changes nothing; it is for settings an agent would otherwise rediscover
+    /// each run (see <see cref="BridgeConfiguration.AgentEnvironment"/>).
+    /// </summary>
+    public string AgentEnvironment { get => _agentEnvironment; set => SetProperty(ref _agentEnvironment, value); }
 
     public bool DarkTheme
     {
@@ -816,6 +824,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         CodexCliExecutable = CodexCliExecutable,
         CodexCliArguments = CodexCliArguments,
         CodexCliTimeoutSeconds = CodexCliTimeoutSeconds,
+        AgentEnvironment = NullIfWhiteSpace(AgentEnvironment),
     };
 
     private void LoadSettings(BridgeConfiguration value)
@@ -847,6 +856,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         CodexCliExecutable = value.CodexCliExecutable;
         CodexCliArguments = value.CodexCliArguments;
         CodexCliTimeoutSeconds = value.CodexCliTimeoutSeconds;
+        AgentEnvironment = value.AgentEnvironment ?? string.Empty;
     }
 
     private static string? NullIfWhiteSpace(string value) =>

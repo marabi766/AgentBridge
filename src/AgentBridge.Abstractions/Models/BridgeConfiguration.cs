@@ -84,6 +84,19 @@ public sealed record BridgeConfiguration
     public int CodexCliTimeoutSeconds { get; init; } = 1800;
 
     /// <summary>
+    /// Extra environment variables for every agent process, one <c>KEY=VALUE</c>
+    /// per line. Merged onto what the bridge itself inherited, so a value here
+    /// wins.
+    ///
+    /// This exists for the settings an agent would otherwise have to rediscover
+    /// on every run. On a machine whose only route out is a local proxy:
+    /// <c>NODE_OPTIONS=--use-env-proxy</c> makes Node's own fetch — and so
+    /// corepack — honour it; <c>PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false</c>
+    /// skips a pre-command check pnpm 11 runs that fails under a write sandbox.
+    /// </summary>
+    public string? AgentEnvironment { get; init; }
+
+    /// <summary>
     /// How many lines of one agent run are written to the log before the rest is
     /// kept for diagnostics only. Zero means no limit.
     ///

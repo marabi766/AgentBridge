@@ -201,6 +201,11 @@ public abstract class CommandLineAgentAdapter
                 startInfo.ArgumentList.Add(argument);
             }
 
+            foreach (var (key, value) in ParseEnvironment(configuration.AgentEnvironment))
+            {
+                startInfo.Environment[key] = value;
+            }
+
             var process = Process.Start(startInfo);
             if (process is null)
             {
@@ -367,6 +372,8 @@ public abstract class CommandLineAgentAdapter
         sb.AppendLine($"Arguments             : {invocation.Arguments}");
         sb.AppendLine($"Run timeout           : {invocation.TimeoutSeconds}s");
         sb.AppendLine($"Working directory     : {configuration.ProjectPath}");
+        var extraEnv = ParseEnvironment(configuration.AgentEnvironment);
+        sb.AppendLine($"Extra environment     : {(extraEnv.Count == 0 ? "(none)" : string.Join(", ", extraEnv.Select(e => e.Key)))}");
         sb.AppendLine($"Run in flight         : {(_run is { HasExited: false } ? $"yes (pid {_run.Id})" : "no")}");
         sb.AppendLine($"Allowance             : {(_quotaResetsAtUtc is { } resets ? $"exhausted until {resets:u}" : "available")}");
         if (_lastOutput.Length > 0)
@@ -605,6 +612,47 @@ public abstract class CommandLineAgentAdapter
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Parses the configured environment block: one <c>KEY=VALUE</c> per line.
+    /// Blank lines and <c>#</c> comments are skipped; a line with no <c>=</c>, or
+    /// an empty key, is ignored rather than failing the run. The value keeps
+    /// everything after the first <c>=</c> verbatim, so <c>NODE_OPTIONS=--a --b</c>
+    /// works.
+    /// </summary>
+    public static IReadOnlyList<KeyValuePair<string, string>> ParseEnvironment(string? block)
+    {
+        var result = new List<KeyValuePair<string, string>>();
+        if (string.IsNullOrWhiteSpace(block))
+        {
+            return result;
+        }
+
+        foreach (var rawLine in block.Split('\n'))
+        {
+            var line = rawLine.Trim();
+            if (line.Length == 0 || line.StartsWith('#'))
+            {
+                continue;
+            }
+
+            var separator = line.IndexOf('=');
+            if (separator <= 0)
+            {
+                continue;
+            }
+
+            var key = line[..separator].Trim();
+            if (key.Length == 0)
+            {
+                continue;
+            }
+
+            result.Add(new KeyValuePair<string, string>(key, line[(separator + 1)..].Trim()));
+        }
+
+        return result;
     }
 
     /// <summary>

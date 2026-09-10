@@ -68,6 +68,15 @@ Both output pumps must be drained. A process whose output nobody reads blocks
 when its pipe buffer fills, which looks exactly like an agent that never
 finishes.
 
+`BridgeConfiguration.AgentEnvironment` (one `KEY=VALUE` per line) is merged onto
+the inherited environment of every agent process, a value there winning. It is
+for settings an agent would otherwise rediscover each run — on a machine whose
+only route out is a local proxy, `NODE_OPTIONS=--use-env-proxy` (Node's own
+`fetch`, and so corepack, then honours the proxy) and
+`PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false` (pnpm 11 runs a pre-command check that
+fails under a write sandbox). Parsed by `ParseEnvironment`; blank lines, `#`
+comments and lines without `=` are skipped rather than failing the run.
+
 ### Continue, Retry, and the completion probe
 
 `Continue Claude` / `Continue Codex` send one word (`"continue"`) into the agent's

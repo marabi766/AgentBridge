@@ -380,8 +380,16 @@
                                     <TextBlock Text="RUN TIMEOUT (SECONDS)" Style="{StaticResource Caption}" />
                                     <TextBox Text="{Binding ClaudeCliTimeoutSeconds}" Margin="0,3,0,10" />
                                     <TextBlock Text="AGENT LOG LINE LIMIT (0 = NO LIMIT)" Style="{StaticResource Caption}" />
-                                    <TextBox Text="{Binding AgentLogLineLimit}" Margin="0,3,0,0"
+                                    <TextBox Text="{Binding AgentLogLineLimit}" Margin="0,3,0,10"
                                              automation:AutomationProperties.HelpText="Lines of one agent run written to the log before the rest is kept for diagnostics only. A run that executes a test suite can print far more than the default." />
+
+                                    <TextBlock Text="AGENT ENVIRONMENT (ONE KEY=VALUE PER LINE)" Style="{StaticResource Caption}" />
+                                    <TextBox Text="{Binding AgentEnvironment, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,4"
+                                             AcceptsReturn="True" TextWrapping="NoWrap" MinHeight="60" VerticalScrollBarVisibility="Auto"
+                                             FontFamily="Consolas"
+                                             automation:AutomationProperties.HelpText="Extra environment variables for every agent process. Empty changes nothing." />
+                                    <TextBlock Text="Applies to both agents. On a machine behind a local proxy: NODE_OPTIONS=--use-env-proxy and PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false spare the agents from rediscovering these each run."
+                                               TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" />
                                 </StackPanel>
                             </Border>
                             <Border Grid.Column="1" Style="{StaticResource PanelStyle}">
