@@ -40,6 +40,14 @@ every guard matters, and each exists because its absence broke a real run.
   one. It was a debug line once and the bridge sat silent for three restarts.
 - **`PredatesInstruction`.** A file last written before the current instruction
   was delivered cannot be the answer to it.
+- **`TrailsTheOtherProtocolFile`.** The protocol strictly alternates, so a
+  genuine reply is always newer than what it replies to. A report older than the
+  current prompt (or a prompt older than the current report) is a leftover from
+  an earlier cycle. This one reads the two files' times against each other, so it
+  still works after a restart — when nothing in memory says an instruction is
+  outstanding and the hash and instruction-time guards are both blind. A real run
+  restarted at a checkpoint and consumed a stale report from before a timeout,
+  advancing past the point where Continue was possible.
 - **Deferral.** A protocol file arriving while the agent process is alive is held
   until it exits, then rechecked via `CheckNowAsync`.
 - **Produced nothing.** An agent that was observed working, stopped, and left its

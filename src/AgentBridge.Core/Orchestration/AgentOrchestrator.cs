@@ -716,6 +716,11 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
                 return;
             }
 
+            if (TrailsTheOtherProtocolFile(AgentRole.Claude, e))
+            {
+                return;
+            }
+
             var nextIteration = _currentIteration + 1;
             if (nextIteration > _configuration.MaximumIterations)
             {
@@ -790,6 +795,11 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             }
 
             if (PredatesInstruction(AgentRole.Codex, e))
+            {
+                return;
+            }
+
+            if (TrailsTheOtherProtocolFile(AgentRole.Codex, e))
             {
                 return;
             }
@@ -1553,6 +1563,44 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             "Ignoring {File}: its content is identical to the revision already handled, so there is nothing new "
             + "to act on. Reset the bridge state to act on it again, or wait for a new revision.", fileName);
         PublishStatus();
+    }
+
+    /// <summary>
+    /// True when the file that just changed is older than the other protocol
+    /// file, which means it belongs to an earlier cycle rather than answering the
+    /// current one.
+    ///
+    /// The protocol strictly alternates — Codex writes a prompt, Claude answers
+    /// with a report, Codex answers that with the next prompt — so a genuine
+    /// reply is always newer than what it is replying to. A report older than the
+    /// current prompt is a leftover: most often one from before a run that timed
+    /// out or was reset without updating it. Unlike the hash and instruction-time
+    /// guards, this one reads the files themselves and so keeps working across a
+    /// restart, when no instruction is outstanding and every in-memory timestamp
+    /// has been reset.
+    /// </summary>
+    private bool TrailsTheOtherProtocolFile(AgentRole role, StableFileChangedEventArgs e)
+    {
+        var (counterpartPath, counterpartRole) = role == AgentRole.Claude
+            ? (_projectService.GetCodexPromptFilePath(_configuration), AgentRole.Codex)
+            : (_projectService.GetClaudeReportFilePath(_configuration), AgentRole.Claude);
+
+        var counterpartWrittenUtc = _projectService.GetLastWriteTimeUtc(counterpartPath);
+        if (counterpartWrittenUtc is null || e.LastWriteTimeUtc > counterpartWrittenUtc)
+        {
+            return false;
+        }
+
+        var fileName = Path.GetFileName(e.FilePath);
+        _lastAction =
+            $"{fileName} is older than {counterpartRole}'s file, so it is a leftover from an earlier cycle, "
+            + $"not a reply to the current one. Waiting for {role} to write a new one.";
+        _logger.LogInformation(
+            "Ignoring {File}: written {WrittenAt:O}, before {Counterpart} at {CounterpartAt:O}. It answers a "
+            + "previous cycle, so {Agent} has not replied to the current one yet.",
+            e.FilePath, e.LastWriteTimeUtc, counterpartRole, counterpartWrittenUtc, role);
+        PublishStatus();
+        return true;
     }
 
     private bool PredatesInstruction(AgentRole role, StableFileChangedEventArgs e)

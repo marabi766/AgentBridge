@@ -28,4 +28,10 @@ public sealed class StubProjectService : IProjectService
 
     public string GetCodexPromptFilePath(BridgeConfiguration configuration) =>
         Path.Combine(configuration.ProjectPath, configuration.CodexPromptFileName);
+
+    /// <summary>Write times a test can set per path to model a stale leftover file.</summary>
+    public Dictionary<string, DateTimeOffset> WriteTimesUtc { get; } = [];
+
+    public DateTimeOffset? GetLastWriteTimeUtc(string path) =>
+        WriteTimesUtc.TryGetValue(path, out var time) ? time : null;
 }

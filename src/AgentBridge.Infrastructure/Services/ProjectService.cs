@@ -87,6 +87,20 @@ public sealed class ProjectService(IGitService gitService) : IProjectService
     public string GetCodexPromptFilePath(BridgeConfiguration configuration) =>
         ResolveProtocolFilePath(configuration.ProjectPath, configuration.CodexPromptFileName);
 
+    public DateTimeOffset? GetLastWriteTimeUtc(string path)
+    {
+        try
+        {
+            return File.Exists(path) ? File.GetLastWriteTimeUtc(path) : null;
+        }
+        catch (Exception)
+        {
+            // A path that cannot be read tells us nothing; the caller treats
+            // "unknown" as "not stale" rather than blocking on it.
+            return null;
+        }
+    }
+
     internal static string? GetProtocolFileNameValidationError(string? fileName, string label)
     {
         if (string.IsNullOrWhiteSpace(fileName))
