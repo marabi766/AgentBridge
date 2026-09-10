@@ -199,10 +199,17 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     /// run that stopped mid-way. Never while it is still working, because there
     /// is nothing to continue until it stops.
     /// </summary>
-    public bool CanContinueClaude => Status?.CurrentIteration > 0
+    // Deliberately not gated on the iteration counter, though Retry above is.
+    // The two ask different things. Retry resends the instruction the bridge is
+    // holding, and at iteration zero it holds none. Continue sends one word into
+    // the session the agent already has on disk, which exists whether or not the
+    // bridge has counted anything — a run reset to zero and restarted at a
+    // checkpoint is exactly when an operator wants to say "carry on", and
+    // copying Retry's guard here denied it at that moment.
+    public bool CanContinueClaude => Status is not null
         && Status.ClaudeStatus != AgentStatus.Busy
         && Status.CurrentState is BridgeState.WaitingForClaudeReport or BridgeState.Error;
-    public bool CanContinueCodex => Status?.CurrentIteration > 0
+    public bool CanContinueCodex => Status is not null
         && Status.CodexStatus != AgentStatus.Busy
         && Status.CurrentState is BridgeState.WaitingForCodexPrompt or BridgeState.Error;
     /// <summary>

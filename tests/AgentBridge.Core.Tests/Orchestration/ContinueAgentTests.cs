@@ -142,6 +142,29 @@ public sealed class ContinueAgentTests
         Assert.Equal(2, harness.ClaudeAdapter.State.SendMessageCallCount);
     }
 
+    [Fact]
+    public async Task AnAgentCanBeContinuedBeforeTheBridgeHasCountedAnIteration()
+    {
+        // A run reset to zero and restarted at a checkpoint: the bridge is
+        // holding no instruction, but the agent still has the session it was
+        // working in. Continue asks that session to carry on, so it must not
+        // need the bridge's counter to have moved — the counter is the bridge's
+        // bookkeeping, not evidence about what the agent has on disk.
+        //
+        // The desktop gated this button on the counter, copied from Retry, and
+        // so refused at exactly the moment it was wanted. The engine never did;
+        // this pins that it never will.
+        var harness = new OrchestratorTestHarness();
+
+        await harness.Orchestrator.StartAtAsync(BridgeStartPoint.WaitForClaudeReport, CancellationToken.None);
+        var before = await harness.Orchestrator.GetStatusAsync(CancellationToken.None);
+        Assert.Equal(0, before.CurrentIteration);
+
+        await harness.Orchestrator.ContinueClaudeAsync(CancellationToken.None);
+
+        Assert.Equal(["continue"], harness.ClaudeAdapter.State.ResumedMessages);
+    }
+
     private static string LastAction(OrchestratorTestHarness harness) =>
         harness.Orchestrator.GetStatusAsync(CancellationToken.None).GetAwaiter().GetResult().LastAction ?? "";
 
