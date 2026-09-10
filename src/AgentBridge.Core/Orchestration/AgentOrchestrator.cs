@@ -81,6 +81,13 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
     // iteration's instruction on top of it. Without this a manual Continue during
     // an allowance wait would be followed, minutes later, by an automatic full
     // resend from the probe that was still counting down to the old reset.
+    // Whether this run has already delivered to the agent, and so left a session
+    // behind that resuming can land in. Asking a CLI to continue a conversation
+    // that does not exist fails the run, and the very first delivery into a fresh
+    // project is exactly that case.
+    private bool _claudeSessionStarted;
+    private bool _codexSessionStarted;
+
     private long _claudeDeliveryEpoch;
     private long _codexDeliveryEpoch;
     // How many times in a row an exhausted allowance has been waited out and the
@@ -367,6 +374,33 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
     /// this one says so, and sends it back to the repository for the facts
     /// before it does anything else.
     /// </summary>
+    /// <summary>
+    /// Whether this iteration's instruction should go into the session the agent
+    /// already has rather than a new one.
+    ///
+    /// The saving is real — a fresh run re-reads the project and re-explores the
+    /// repository before it does anything, and those turns cost more than the
+    /// context they rediscover — but it is paid for with a conversation that
+    /// only grows. So it is off unless asked for, never used before there is a
+    /// session to resume, and interrupted periodically.
+    /// </summary>
+    private bool ShouldReuseSession(AgentRole role)
+    {
+        if (!_configuration.ReuseAgentSessions)
+        {
+            return false;
+        }
+
+        var started = role == AgentRole.Claude ? _claudeSessionStarted : _codexSessionStarted;
+        if (!started)
+        {
+            return false;
+        }
+
+        var every = _configuration.FreshSessionEveryIterations;
+        return every <= 0 || _currentIteration <= 0 || _currentIteration % every != 0;
+    }
+
     private async Task<string> RenderRecoveryAsync(AgentRole role, CancellationToken cancellationToken)
     {
         var branch = await SafeRefreshGitStatusAsync(cancellationToken).ConfigureAwait(false);
@@ -1435,8 +1469,9 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             ?? _templateEngine.Render(_configuration.CodexInstructionTemplate, variables);
 
         var adapter = _agentAdapterProvider.GetAdapter(AgentRole.Codex);
+        var resumeSession = resumeMessage is not null || ShouldReuseSession(AgentRole.Claude);
         var success = await InvokeAgentAsync(
-            adapter, message, resumeMessage is not null, cancellationToken).ConfigureAwait(false);
+            adapter, message, resumeSession, cancellationToken).ConfigureAwait(false);
 
         if (!success)
         {
@@ -1447,6 +1482,7 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             return;
         }
 
+        _codexSessionStarted = true;
         _codexInstructionSentAtUtc = DateTimeOffset.UtcNow;
         StartCompletionWatchdog(AgentRole.Codex, adapter);
         _lastAgent = AgentRole.Codex;
@@ -1480,8 +1516,9 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             ?? _templateEngine.Render(_configuration.ClaudeInstructionTemplate, variables);
 
         var adapter = _agentAdapterProvider.GetAdapter(AgentRole.Claude);
+        var resumeSession = resumeMessage is not null || ShouldReuseSession(AgentRole.Codex);
         var success = await InvokeAgentAsync(
-            adapter, message, resumeMessage is not null, cancellationToken).ConfigureAwait(false);
+            adapter, message, resumeSession, cancellationToken).ConfigureAwait(false);
 
         if (!success)
         {
@@ -1492,6 +1529,7 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             return;
         }
 
+        _claudeSessionStarted = true;
         _claudeInstructionSentAtUtc = DateTimeOffset.UtcNow;
         StartCompletionWatchdog(AgentRole.Claude, adapter);
         _lastAgent = AgentRole.Claude;
@@ -1739,6 +1777,10 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
 
     private void InitializeFreshState()
     {
+        // A fresh state knows of no session, so the next delivery starts one
+        // rather than trying to resume whatever happened to run here last.
+        _claudeSessionStarted = false;
+        _codexSessionStarted = false;
         _currentIteration = 0;
         _lastClaudeReportHash = null;
         _lastCodexPromptHash = null;

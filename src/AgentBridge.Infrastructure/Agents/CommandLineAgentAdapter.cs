@@ -341,6 +341,24 @@ public abstract class CommandLineAgentAdapter
     /// of one refusal must not shorten it, and a later, further-off reset is the
     /// one to believe.
     /// </summary>
+    /// <summary>
+    /// Reports what a run spent, once, in a line an operator can read.
+    ///
+    /// Logged outside the line budget on purpose: it is one line, it is the
+    /// answer to "why is my allowance going", and it arrives at the end of a
+    /// long run — which is precisely where the budget has already run out.
+    /// </summary>
+    private void NoteRunCost(string line)
+    {
+        var cost = AgentRunCostReader.TryRead(line);
+        if (cost is null)
+        {
+            return;
+        }
+
+        _logger.LogInformation("{Agent} run cost: {Cost}", Name, cost.Describe());
+    }
+
     private void NoteQuotaRefusal(string line)
     {
         if (!AgentQuotaSignal.TryDetect(line, out var announcedResetUtc))
@@ -507,6 +525,7 @@ public abstract class CommandLineAgentAdapter
             // Detection reads the raw line: the refusal is a JSON field, and the
             // rendering below deliberately drops it as noise.
             adapter.NoteQuotaRefusal(line);
+            adapter.NoteRunCost(line);
 
             // Rendered before the budget is spent, so the two thousand lines a run
             // may log are two thousand readable ones rather than two thousand

@@ -70,6 +70,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private const int MaximumActivityEntries = 2000;
 
     private int _agentLogLineLimit = 20_000;
+    private bool _reuseAgentSessions;
+    private int _freshSessionEveryIterations = 5;
 
     public MainWindowViewModel(
         IOrchestratorService orchestrator,
@@ -341,6 +343,20 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     public bool HasRemoteControlUrl => !string.IsNullOrWhiteSpace(RemoteControlUrl);
 
+    /// <summary>
+    /// Which build this is. Read from the running assembly rather than written
+    /// down anywhere, so it cannot disagree with what is actually installed —
+    /// which is the only thing anyone asks it for.
+    /// </summary>
+    public static string VersionText
+    {
+        get
+        {
+            var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+            return version is null ? "Agent Bridge" : $"Agent Bridge {version.ToString(3)}";
+        }
+    }
+
     public string RemoteControlStatus { get => _remoteControlStatus; set => SetProperty(ref _remoteControlStatus, value); }
 
     /// <summary>What the session is called, so it is recognisable in a list of them.</summary>
@@ -444,6 +460,15 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     /// diagnostics only. Zero means no limit.
     /// </summary>
     public int AgentLogLineLimit { get => _agentLogLineLimit; set => SetProperty(ref _agentLogLineLimit, value); }
+
+    /// <summary>
+    /// Whether an iteration's instruction goes into the session the agent
+    /// already has. The saving is in the turns a fresh run spends rediscovering
+    /// the project before it starts work.
+    /// </summary>
+    public bool ReuseAgentSessions { get => _reuseAgentSessions; set => SetProperty(ref _reuseAgentSessions, value); }
+
+    public int FreshSessionEveryIterations { get => _freshSessionEveryIterations; set => SetProperty(ref _freshSessionEveryIterations, value); }
 
     public string CodexCliExecutable { get => _codexCliExecutable; set => SetProperty(ref _codexCliExecutable, value); }
 
@@ -905,6 +930,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         ClaudeCliArguments = ClaudeCliArguments,
         ClaudeCliTimeoutSeconds = ClaudeCliTimeoutSeconds,
         ClaudeRemoteControlSessionName = RemoteControlSessionName,
+        ReuseAgentSessions = ReuseAgentSessions,
+        FreshSessionEveryIterations = FreshSessionEveryIterations,
         AgentLogLineLimit = AgentLogLineLimit,
         CodexCliExecutable = CodexCliExecutable,
         CodexCliArguments = CodexCliArguments,
@@ -938,6 +965,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         ClaudeCliArguments = value.ClaudeCliArguments;
         ClaudeCliTimeoutSeconds = value.ClaudeCliTimeoutSeconds;
         RemoteControlSessionName = value.ClaudeRemoteControlSessionName;
+        ReuseAgentSessions = value.ReuseAgentSessions;
+        FreshSessionEveryIterations = value.FreshSessionEveryIterations;
         AgentLogLineLimit = value.AgentLogLineLimit;
         CodexCliExecutable = value.CodexCliExecutable;
         CodexCliArguments = value.CodexCliArguments;

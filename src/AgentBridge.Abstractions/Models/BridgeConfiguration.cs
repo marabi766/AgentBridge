@@ -123,6 +123,28 @@ public sealed record BridgeConfiguration
     /// </summary>
     public int AgentLogLineLimit { get; init; } = 20_000;
 
+    /// <summary>
+    /// Whether each iteration's instruction goes into the session the agent
+    /// already has, instead of starting a new one.
+    ///
+    /// A fresh command line run remembers nothing: it re-reads the project's
+    /// instructions, re-explores the repository and re-derives everything it
+    /// worked out last time, and those exploration turns are the expensive part
+    /// of a run. Resuming pays cache-read prices for context it already holds.
+    ///
+    /// Off by default because it trades that saving for a conversation that
+    /// grows: a mistake or dead end from an early iteration is still in context
+    /// twenty iterations later. <see cref="FreshSessionEveryIterations"/> is the
+    /// release valve.
+    /// </summary>
+    public bool ReuseAgentSessions { get; init; }
+
+    /// <summary>
+    /// Start a clean session every this many iterations, so a reused one cannot
+    /// grow without bound. Zero never starts fresh.
+    /// </summary>
+    public int FreshSessionEveryIterations { get; init; } = 5;
+
     // --- Message templates ---
     public string ClaudeInstructionTemplate { get; init; } = DefaultTemplates.ClaudeInstruction;
 

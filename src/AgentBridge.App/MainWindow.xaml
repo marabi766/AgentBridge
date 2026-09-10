@@ -80,6 +80,9 @@
                     <StackPanel DockPanel.Dock="Bottom" Margin="0,16,0,0">
                         <TextBlock Text="PROJECT" Style="{StaticResource Caption}" />
                         <TextBlock Text="{Binding ProjectPath}" TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" />
+                        <TextBlock Text="{Binding VersionText}" FontSize="11" Margin="0,10,0,0"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"
+                                   automation:AutomationProperties.Name="Application version" />
                     </StackPanel>
                     <StackPanel>
                         <Button Style="{StaticResource NavButton}" Content="▣  Dashboard" Command="{Binding NavigateCommand}" CommandParameter="Dashboard" />
@@ -402,6 +405,12 @@
                                     <TextBlock Text="REMOTE CONTROL SESSION NAME" Style="{StaticResource Caption}" />
                                     <TextBox Text="{Binding RemoteControlSessionName, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,10"
                                              automation:AutomationProperties.HelpText="What a session opened from the dashboard is called, so it is recognisable among your other sessions rather than named after this machine." />
+                                    <CheckBox Content="Reuse the agent's session between iterations" IsChecked="{Binding ReuseAgentSessions}" Margin="0,6,0,4"
+                                              automation:AutomationProperties.HelpText="Sends each iteration's instruction into the session the agent already has, instead of a new one. A fresh run remembers nothing and spends its first turns re-reading the project and re-exploring the repository, which is the expensive part; a resumed one pays cache prices for context it already holds." />
+                                    <TextBlock Text="The saving is real, but a reused conversation only grows — a dead end from an early iteration is still in context much later. The setting below interrupts it."
+                                               TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,8" />
+                                    <TextBlock Text="FRESH SESSION EVERY N ITERATIONS (0 = NEVER)" Style="{StaticResource Caption}" />
+                                    <TextBox Text="{Binding FreshSessionEveryIterations}" Margin="0,3,0,10" />
                                     <TextBlock Text="AGENT LOG LINE LIMIT (0 = NO LIMIT)" Style="{StaticResource Caption}" />
                                     <TextBox Text="{Binding AgentLogLineLimit}" Margin="0,3,0,10"
                                              automation:AutomationProperties.HelpText="Lines of one agent run written to the log before the rest is kept for diagnostics only. A run that executes a test suite can print far more than the default." />

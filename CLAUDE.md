@@ -77,6 +77,25 @@ only route out is a local proxy, `NODE_OPTIONS=--use-env-proxy` (Node's own
 fails under a write sandbox). Parsed by `ParseEnvironment`; blank lines, `#`
 comments and lines without `=` are skipped rather than failing the run.
 
+### Session reuse, and what a run costs
+
+`ReuseAgentSessions` sends each iteration's instruction into the session the
+agent already has instead of a new one. A fresh command line run remembers
+nothing, so it re-reads the project and re-explores the repository before it
+starts work, and those turns are the expensive part — measured runs spent
+sixty-five of them. `ShouldReuseSession` never resumes before this run has
+actually delivered to that agent (asking a CLI to continue a conversation that
+does not exist fails the run outright, and a fresh project is exactly that case)
+and starts clean every `FreshSessionEveryIterations`, so a reused conversation
+cannot carry an early dead end into a hundredth iteration.
+
+`AgentRunCostReader` reads what a run reported spending off the line that ends
+it, and one readable summary is logged outside the line budget — it is the answer
+to "why is my allowance going", and it arrives exactly where the budget has
+already run out. `"input_tokens"` is also the tail of
+`"cache_read_input_tokens"`; the pattern is anchored so cached context is not
+reported as freshly paid for, which would invert the number entirely.
+
 ### Continue, Retry, and the completion probe
 
 `Continue Claude` / `Continue Codex` send one word (`"continue"`) into the agent's
