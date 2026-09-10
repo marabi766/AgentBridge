@@ -132,6 +132,24 @@
                                     automation:AutomationProperties.HelpText="Discards the iteration counter and the recorded protocol-file hashes so the current files count as new again. Available while the bridge is stopped." />
                         </StackPanel>
 
+                        <Border Style="{StaticResource PanelStyle}">
+                            <StackPanel>
+                                <TextBlock Text="Drive Claude from another device" FontWeight="SemiBold" />
+                                <TextBlock Text="Opens a Claude session carrying a copy of this project's conversation and shows the link to open on a phone or another machine. It runs alongside the loop — what you do there does not disturb the run."
+                                           TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,4,0,0" />
+                                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                    <Button Content="⇱ Remote control" Command="{Binding OpenRemoteControlCommand}"
+                                            automation:AutomationProperties.HelpText="Starts a background Claude session with Remote Control enabled and shows the link it publishes." />
+                                </StackPanel>
+                                <TextBlock Text="{Binding RemoteControlStatus}" TextWrapping="Wrap"
+                                           Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,8,0,0" />
+                                <TextBox Text="{Binding RemoteControlUrl, Mode=OneWay}"
+                                         Visibility="{Binding HasRemoteControlUrl, Converter={StaticResource BooleanToVisibility}}"
+                                         IsReadOnly="True" FontFamily="Consolas" Margin="0,8,0,0"
+                                         automation:AutomationProperties.Name="Remote control link" />
+                            </StackPanel>
+                        </Border>
+
                         <Border Style="{StaticResource PanelStyle}" Visibility="{Binding HasError, Converter={StaticResource BooleanToVisibility}}" BorderBrush="{DynamicResource ErrorBrush}" Background="{DynamicResource ErrorSurfaceBrush}" automation:AutomationProperties.LiveSetting="Assertive">
                             <StackPanel>
                                 <TextBlock Text="The loop needs attention" FontSize="15" FontWeight="SemiBold" Foreground="{DynamicResource ErrorBrush}" />
@@ -379,6 +397,9 @@
                                                TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,10" />
                                     <TextBlock Text="RUN TIMEOUT (SECONDS)" Style="{StaticResource Caption}" />
                                     <TextBox Text="{Binding ClaudeCliTimeoutSeconds}" Margin="0,3,0,10" />
+                                    <TextBlock Text="REMOTE CONTROL SESSION NAME" Style="{StaticResource Caption}" />
+                                    <TextBox Text="{Binding RemoteControlSessionName, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,10"
+                                             automation:AutomationProperties.HelpText="What a session opened from the dashboard is called, so it is recognisable among your other sessions rather than named after this machine." />
                                     <TextBlock Text="AGENT LOG LINE LIMIT (0 = NO LIMIT)" Style="{StaticResource Caption}" />
                                     <TextBox Text="{Binding AgentLogLineLimit}" Margin="0,3,0,10"
                                              automation:AutomationProperties.HelpText="Lines of one agent run written to the log before the rest is kept for diagnostics only. A run that executes a test suite can print far more than the default." />

@@ -95,6 +95,25 @@ this, a manual Continue during an allowance wait is followed minutes later by an
 automatic full resend from the probe that was still counting down to the old
 reset — the operator switched accounts precisely so that wait no longer applies.
 
+### Remote control
+
+`Remote control` on the dashboard opens a Claude session the operator drives from
+another device. Three CLI facts shape it, and each was found the hard way:
+`--remote-control` means nothing to a `--print` run (it is silently ignored);
+a session whose stdout is redirected is not interactive, so it cannot simply be
+run and read; and the link is never printed by the command that starts the
+session. The way through is `--bg`, which runs the session in a terminal of its
+own and returns a short id, plus `claude logs <id>` to read the link back out of
+that terminal — hence `RemoteControlSignal`, which strips the ANSI the TUI paints
+before looking for the URL.
+
+`--continue` makes the session a *copy* of the conversation ("started a copy of
+that conversation as …"), so it carries the bridge's history without anything
+typed there reaching a run the bridge is still watching. That is also why
+`OpenClaudeRemoteControlAsync` takes no `_actionLock` and touches no state: it
+opens beside the cycle, and needing an idle agent would deny it at the one moment
+— mid-run, away from the desk — it is wanted.
+
 ### Reading what an agent printed
 
 `AgentQuotaSignal` and `AgentStreamLine` both parse agent output. **Every pattern

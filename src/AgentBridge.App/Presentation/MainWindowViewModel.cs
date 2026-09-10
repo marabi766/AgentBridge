@@ -48,6 +48,9 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private string _codexCliArguments = string.Empty;
     private int _codexCliTimeoutSeconds = 1800;
     private string _agentEnvironment = string.Empty;
+    private string _remoteControlSessionName = "Agent Bridge";
+    private string _remoteControlUrl = string.Empty;
+    private string _remoteControlStatus = string.Empty;
     private BridgeStartPoint _selectedStartPoint = BridgeStartPoint.WaitForClaudeReport;
     private int _setupStep = 1;
     private string _setupValidation = "No project validation has run yet.";
@@ -102,6 +105,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         ContinueCodexCommand = new AsyncCommand(
             () => RunOperationAsync("Asking Codex to continue…", _orchestrator.ContinueCodexAsync),
             () => CanContinueCodex);
+        OpenRemoteControlCommand = new AsyncCommand(OpenRemoteControlAsync, () => CanOpenRemoteControl);
         ContinueWaitingForClaudeCommand = new AsyncCommand(
             () => RunOperationAsync("Continuing to wait for Claude…", _orchestrator.ContinueWaitingForClaudeAsync),
             () => CanContinueWaitingForClaude);
@@ -131,6 +135,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public AsyncCommand RetryCodexCommand { get; }
     public AsyncCommand ContinueClaudeCommand { get; }
     public AsyncCommand ContinueCodexCommand { get; }
+    public AsyncCommand OpenRemoteControlCommand { get; }
     public AsyncCommand ContinueWaitingForClaudeCommand { get; }
     public AsyncCommand ContinueWaitingForCodexCommand { get; }
     public AsyncCommand StopCommand { get; }
@@ -200,6 +205,14 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public bool CanContinueCodex => Status?.CurrentIteration > 0
         && Status.CodexStatus != AgentStatus.Busy
         && Status.CurrentState is BridgeState.WaitingForCodexPrompt or BridgeState.Error;
+    /// <summary>
+    /// A remote control session is a copy opened beside the run, so unlike
+    /// Continue it does not need the agent to be idle — reaching for a phone
+    /// while the bridge is mid-delivery is exactly when it is wanted. It only
+    /// needs a project to open the session in.
+    /// </summary>
+    public bool CanOpenRemoteControl => !string.IsNullOrWhiteSpace(ProjectPath);
+
     public bool CanContinueWaitingForClaude => Status?.CurrentState == BridgeState.Error
         && Status.LastError?.StartsWith("Failed to deliver instruction to Claude", StringComparison.Ordinal) == true;
     public bool CanContinueWaitingForCodex => Status?.CurrentState == BridgeState.Error
@@ -293,6 +306,30 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     /// works — save before testing.
     /// </summary>
     public string TelegramTestResult { get => _telegramTestResult; set => SetProperty(ref _telegramTestResult, value); }
+
+    /// <summary>
+    /// The link to the last remote control session opened, empty until one is.
+    /// Kept as text the operator can select and copy rather than opened for
+    /// them: the device that needs it is usually not this one.
+    /// </summary>
+    public string RemoteControlUrl
+    {
+        get => _remoteControlUrl;
+        set
+        {
+            if (SetProperty(ref _remoteControlUrl, value))
+            {
+                OnPropertyChanged(nameof(HasRemoteControlUrl));
+            }
+        }
+    }
+
+    public bool HasRemoteControlUrl => !string.IsNullOrWhiteSpace(RemoteControlUrl);
+
+    public string RemoteControlStatus { get => _remoteControlStatus; set => SetProperty(ref _remoteControlStatus, value); }
+
+    /// <summary>What the session is called, so it is recognisable in a list of them.</summary>
+    public string RemoteControlSessionName { get => _remoteControlSessionName; set => SetProperty(ref _remoteControlSessionName, value); }
 
     public bool AutoStart { get => _autoStart; set => SetProperty(ref _autoStart, value); }
     public bool StartMinimized { get => _startMinimized; set => SetProperty(ref _startMinimized, value); }
@@ -754,6 +791,38 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>
+    /// Opens a session on another device and shows its link.
+    ///
+    /// Takes its time on purpose: the link is published by the session itself
+    /// once it has connected, so this waits rather than reporting nothing and
+    /// leaving the operator to guess whether it worked.
+    /// </summary>
+    private async Task OpenRemoteControlAsync()
+    {
+        RemoteControlUrl = string.Empty;
+        RemoteControlStatus = "Opening a session and waiting for its link…";
+        try
+        {
+            var session = await _orchestrator.OpenClaudeRemoteControlAsync(CancellationToken.None);
+            if (session is null)
+            {
+                RemoteControlStatus =
+                    "No link came back. Check that the Claude CLI is signed in — the log has what it printed.";
+                return;
+            }
+
+            RemoteControlUrl = session.Url;
+            RemoteControlStatus =
+                $"Session {session.SessionId} is open. It carries a copy of the conversation, "
+                + "so what you do there does not disturb the run.";
+        }
+        catch (Exception ex)
+        {
+            RemoteControlStatus = $"Could not open a session: {ex.Message}";
+        }
+    }
+
     private async Task SaveSettingsAsync() => _ = await SaveSettingsCoreAsync();
 
     private async Task<bool> SaveSettingsCoreAsync()
@@ -820,6 +889,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         ClaudeCliExecutable = ClaudeCliExecutable,
         ClaudeCliArguments = ClaudeCliArguments,
         ClaudeCliTimeoutSeconds = ClaudeCliTimeoutSeconds,
+        ClaudeRemoteControlSessionName = RemoteControlSessionName,
         AgentLogLineLimit = AgentLogLineLimit,
         CodexCliExecutable = CodexCliExecutable,
         CodexCliArguments = CodexCliArguments,
@@ -852,6 +922,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         ClaudeCliExecutable = value.ClaudeCliExecutable;
         ClaudeCliArguments = value.ClaudeCliArguments;
         ClaudeCliTimeoutSeconds = value.ClaudeCliTimeoutSeconds;
+        RemoteControlSessionName = value.ClaudeRemoteControlSessionName;
         AgentLogLineLimit = value.AgentLogLineLimit;
         CodexCliExecutable = value.CodexCliExecutable;
         CodexCliArguments = value.CodexCliArguments;
@@ -876,6 +947,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         RetryCodexCommand.RaiseCanExecuteChanged();
         ContinueClaudeCommand.RaiseCanExecuteChanged();
         ContinueCodexCommand.RaiseCanExecuteChanged();
+        OpenRemoteControlCommand.RaiseCanExecuteChanged();
         ContinueWaitingForClaudeCommand.RaiseCanExecuteChanged();
         ContinueWaitingForCodexCommand.RaiseCanExecuteChanged();
         StopCommand.RaiseCanExecuteChanged();

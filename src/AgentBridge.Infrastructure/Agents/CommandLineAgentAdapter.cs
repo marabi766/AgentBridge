@@ -54,6 +54,12 @@ public abstract class CommandLineAgentAdapter
 
     private readonly IConfigurationService _configurationService;
     private readonly ILogger _logger;
+
+    /// <summary>Settings, for subclasses whose agent offers something beyond one run.</summary>
+    protected IConfigurationService Configuration => _configurationService;
+
+    /// <summary>The same log the run machinery writes to, so one agent reads as one story.</summary>
+    protected ILogger Log => _logger;
     private readonly SemaphoreSlim _runLock = new(1, 1);
 
     private Process? _run;

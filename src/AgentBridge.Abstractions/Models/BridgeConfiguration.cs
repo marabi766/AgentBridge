@@ -65,6 +65,20 @@ public sealed record BridgeConfiguration
     /// <summary>How long one Claude run may take before it is abandoned.</summary>
     public int ClaudeCliTimeoutSeconds { get; init; } = 3600;
 
+    /// <summary>
+    /// What a remote control session is called, so it is recognisable among the
+    /// operator's other sessions rather than being named after the machine.
+    /// </summary>
+    public string ClaudeRemoteControlSessionName { get; init; } = "Agent Bridge";
+
+    /// <summary>
+    /// How long to wait for a remote control session to announce its link. The
+    /// link is not printed by the command that starts the session — it appears
+    /// in that session's own terminal once it has connected, which took a few
+    /// seconds every time it was measured.
+    /// </summary>
+    public int RemoteControlLinkTimeoutSeconds { get; init; } = 60;
+
     // --- Codex CLI ---
     // Drives Codex as a command line process instead of through the ChatGPT
     // desktop window. On by default, for the reasons given above.
