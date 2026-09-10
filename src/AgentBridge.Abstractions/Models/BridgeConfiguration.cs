@@ -136,6 +136,28 @@ public sealed record BridgeConfiguration
 
     public bool NotificationsEnabled { get; init; } = true;
 
+    // --- Telegram ---
+    // A second notification channel that reaches a phone. The desktop balloon is
+    // no use when the operator has walked away, which — with the loop now able to
+    // run through a locked screen — is the normal case.
+    public bool TelegramNotificationsEnabled { get; init; }
+
+    /// <summary>The bot token from @BotFather, in the form <c>123456:ABC-DEF...</c>.</summary>
+    public string? TelegramBotToken { get; init; }
+
+    /// <summary>
+    /// The chat to deliver to. A personal chat id (a number), a group id (a
+    /// negative number), or an @channel name.
+    /// </summary>
+    public string? TelegramChatId { get; init; }
+
+    /// <summary>
+    /// Whether to attach the whole protocol file an agent just wrote, not only a
+    /// one-line "Claude finished iteration 3". On by default: the report is the
+    /// reason to want the message.
+    /// </summary>
+    public bool TelegramIncludeReports { get; init; } = true;
+
     public bool DryRun { get; init; } = true;
 
     public string LoggingLevel { get; init; } = "Information";

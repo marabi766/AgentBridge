@@ -587,6 +587,16 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
     public Task<bool> TestCodexConnectionAsync(CancellationToken cancellationToken) =>
         TestConnectionAsync(AgentRole.Codex, cancellationToken);
 
+    public async Task<bool> SendTestNotificationAsync(CancellationToken cancellationToken)
+    {
+        if (_notificationService is ISupportsNotificationTest testable)
+        {
+            return await testable.SendTestNotificationAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        return false;
+    }
+
     private async Task<bool> TestConnectionAsync(AgentRole role, CancellationToken cancellationToken)
     {
         var adapter = _agentAdapterProvider.GetAdapter(role);
@@ -725,6 +735,9 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             Transition(BridgeState.ClaudeReportDetected, _lastAction);
             await PersistStateAsync(CancellationToken.None).ConfigureAwait(false);
 
+            await NotifyAgentFinishedAsync(
+                AgentRole.Claude, _configuration.ClaudeReportFileName, e.Content).ConfigureAwait(false);
+
             Transition(BridgeState.WaitingForCodex, "Preparing to invoke Codex");
             await PersistStateAsync(CancellationToken.None).ConfigureAwait(false);
 
@@ -789,6 +802,9 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             _lastAction = $"Codex prompt detected (iteration {_currentIteration})";
             Transition(BridgeState.CodexPromptDetected, _lastAction);
             await PersistStateAsync(CancellationToken.None).ConfigureAwait(false);
+
+            await NotifyAgentFinishedAsync(
+                AgentRole.Codex, _configuration.CodexPromptFileName, e.Content).ConfigureAwait(false);
 
             Transition(BridgeState.WaitingForClaude, "Preparing to invoke Claude");
             await PersistStateAsync(CancellationToken.None).ConfigureAwait(false);
@@ -1687,7 +1703,32 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
         await _stateStore.SaveAsync(snapshot, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task NotifyAsync(string title, string message, NotificationLevel level, CancellationToken cancellationToken)
+    /// <summary>
+    /// Announces that an agent has delivered its protocol file, with the file
+    /// itself attached for any channel that can carry it. This is the message an
+    /// operator who has walked away actually wants — "iteration 3 is done, here
+    /// is what it says".
+    /// </summary>
+    private Task NotifyAgentFinishedAsync(AgentRole role, string fileName, string content)
+    {
+        var branch = _lastGitStatus?.CurrentBranch;
+        var where = string.IsNullOrWhiteSpace(branch) ? string.Empty : $" on {branch}";
+        var counterpart = role == AgentRole.Claude ? "Codex" : "Claude";
+
+        return NotifyAsync(
+            $"{role} finished iteration {_currentIteration}",
+            $"{role} delivered {fileName}{where}. {counterpart} is next. The file is attached.",
+            NotificationLevel.Info,
+            CancellationToken.None,
+            new NotificationAttachment { FileName = fileName, Content = content });
+    }
+
+    private async Task NotifyAsync(
+        string title,
+        string message,
+        NotificationLevel level,
+        CancellationToken cancellationToken,
+        NotificationAttachment? attachment = null)
     {
         if (!_configuration.NotificationsEnabled)
         {
@@ -1696,7 +1737,7 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
 
         try
         {
-            await _notificationService.NotifyAsync(title, message, level, cancellationToken).ConfigureAwait(false);
+            await _notificationService.NotifyAsync(title, message, level, cancellationToken, attachment).ConfigureAwait(false);
         }
         catch (Exception ex)
         {

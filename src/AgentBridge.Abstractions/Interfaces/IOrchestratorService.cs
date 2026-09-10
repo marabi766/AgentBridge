@@ -46,6 +46,13 @@ public interface IOrchestratorService
 
     Task<bool> TestCodexConnectionAsync(CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Sends a test message through every configured remote notification channel,
+    /// so the operator can confirm a Telegram token and chat id before relying on
+    /// them. Returns false if no channel accepted it.
+    /// </summary>
+    Task<bool> SendTestNotificationAsync(CancellationToken cancellationToken);
+
     Task<BridgeStatusView> GetStatusAsync(CancellationToken cancellationToken);
 
     /// <summary>Resets a corrupted or ambiguous persisted state back to a fresh Idle start. Never invoked automatically.</summary>

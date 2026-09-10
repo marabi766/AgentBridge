@@ -76,8 +76,14 @@ public sealed class DesktopNotificationService : INotificationService, IDisposab
         _icon.Text = text.Length <= 63 ? text : text[..60] + "…";
     }
 
-    public Task NotifyAsync(string title, string message, NotificationLevel level, CancellationToken cancellationToken)
+    public Task NotifyAsync(
+        string title,
+        string message,
+        NotificationLevel level,
+        CancellationToken cancellationToken,
+        NotificationAttachment? attachment = null)
     {
+        // A tray balloon cannot carry a file; the attachment is for channels that can.
         if (!_notificationsEnabled || cancellationToken.IsCancellationRequested) return Task.CompletedTask;
         System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
         {

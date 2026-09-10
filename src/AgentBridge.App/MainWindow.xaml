@@ -348,7 +348,20 @@
                                     <CheckBox IsChecked="{Binding NotificationsEnabled}" Content="Enable Windows notifications" Margin="0,0,0,10" />
                                     <CheckBox IsChecked="{Binding AutoStart}" Content="Start the bridge automatically when the app opens" Margin="0,0,0,10" />
                                     <CheckBox IsChecked="{Binding StartMinimized}" Content="Start minimized" Margin="0,0,0,10" />
-                                    <CheckBox IsChecked="{Binding DarkTheme}" Content="Use dark theme" Margin="0,0,0,10" />
+                                    <CheckBox IsChecked="{Binding DarkTheme}" Content="Use dark theme" Margin="0,0,0,12" />
+
+                                    <TextBlock Text="TELEGRAM" Style="{StaticResource Caption}" />
+                                    <CheckBox IsChecked="{Binding TelegramNotificationsEnabled}" Content="Send notifications to a Telegram chat" Margin="0,4,0,8" />
+                                    <TextBlock Text="BOT TOKEN (from @BotFather)" Style="{StaticResource Caption}" />
+                                    <TextBox Text="{Binding TelegramBotToken, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,8" />
+                                    <TextBlock Text="CHAT ID (a number, or @channelname)" Style="{StaticResource Caption}" />
+                                    <TextBox Text="{Binding TelegramChatId, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,8" />
+                                    <CheckBox IsChecked="{Binding TelegramIncludeReports}" Content="Attach the full report file to each message" Margin="0,0,0,8" />
+                                    <Button Content="Send test message" Command="{Binding TestTelegramCommand}" HorizontalAlignment="Left"
+                                            automation:AutomationProperties.HelpText="Sends a test message using the saved token and chat id. Save first." />
+                                    <TextBlock Text="{Binding TelegramTestResult}" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,6,0,12" />
+                                    <TextBlock Text="To find your chat id: message the bot once, then open https://api.telegram.org/bot&lt;token&gt;/getUpdates and read chat.id. The test uses the saved values, so Save before testing." TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,12" />
+
                                     <TextBlock Text="Settings are validated and written as a single transaction. A partial save cannot occur." TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" />
                                 </StackPanel>
                             </Border>

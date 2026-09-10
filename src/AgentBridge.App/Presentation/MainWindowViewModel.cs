@@ -30,6 +30,11 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private int _retryCount = 3;
     private int _fileDebounceMilliseconds = 400;
     private bool _notificationsEnabled = true;
+    private bool _telegramNotificationsEnabled;
+    private string _telegramBotToken = string.Empty;
+    private string _telegramChatId = string.Empty;
+    private bool _telegramIncludeReports = true;
+    private string _telegramTestResult = string.Empty;
     private bool _autoStart;
     private bool _startMinimized;
     private bool _darkTheme;
@@ -107,6 +112,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         LoadActivityCommand = new AsyncCommand(LoadActivityAsync);
         TestClaudeCommand = new AsyncCommand(TestClaudeAsync);
         TestCodexCommand = new AsyncCommand(TestCodexAsync);
+        TestTelegramCommand = new AsyncCommand(TestTelegramAsync);
         SaveSettingsCommand = new AsyncCommand(SaveSettingsAsync);
         BrowseProjectCommand = new RelayCommand(_ => BrowseProject());
         SetupNextCommand = new AsyncCommand(SetupNextAsync);
@@ -131,6 +137,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public AsyncCommand LoadActivityCommand { get; }
     public AsyncCommand TestClaudeCommand { get; }
     public AsyncCommand TestCodexCommand { get; }
+    public AsyncCommand TestTelegramCommand { get; }
     public AsyncCommand SaveSettingsCommand { get; }
     public RelayCommand BrowseProjectCommand { get; }
     public AsyncCommand SetupNextCommand { get; }
@@ -274,6 +281,18 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             if (SetProperty(ref _notificationsEnabled, value)) NotificationsChanged?.Invoke(value);
         }
     }
+    public bool TelegramNotificationsEnabled { get => _telegramNotificationsEnabled; set => SetProperty(ref _telegramNotificationsEnabled, value); }
+    public string TelegramBotToken { get => _telegramBotToken; set => SetProperty(ref _telegramBotToken, value); }
+    public string TelegramChatId { get => _telegramChatId; set => SetProperty(ref _telegramChatId, value); }
+    public bool TelegramIncludeReports { get => _telegramIncludeReports; set => SetProperty(ref _telegramIncludeReports, value); }
+
+    /// <summary>
+    /// Outcome of the last "send a test message" press. The token and chat id
+    /// are read from the saved settings, so this reports whether what is on disk
+    /// works — save before testing.
+    /// </summary>
+    public string TelegramTestResult { get => _telegramTestResult; set => SetProperty(ref _telegramTestResult, value); }
+
     public bool AutoStart { get => _autoStart; set => SetProperty(ref _autoStart, value); }
     public bool StartMinimized { get => _startMinimized; set => SetProperty(ref _startMinimized, value); }
     public bool DryRun { get => _dryRun; set => SetProperty(ref _dryRun, value); }
@@ -711,6 +730,22 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         catch (Exception ex) { CodexDiagnostics = $"Test failed: {ex.Message}"; }
     }
 
+    private async Task TestTelegramAsync()
+    {
+        TelegramTestResult = "Sending a test message…";
+        try
+        {
+            var delivered = await _orchestrator.SendTestNotificationAsync(CancellationToken.None);
+            TelegramTestResult = delivered
+                ? "Delivered. Check the chat for the test message."
+                : "Not delivered. Save first, then check the token and chat id — the log has the reason.";
+        }
+        catch (Exception ex)
+        {
+            TelegramTestResult = $"Test failed: {ex.Message}";
+        }
+    }
+
     private async Task SaveSettingsAsync() => _ = await SaveSettingsCoreAsync();
 
     private async Task<bool> SaveSettingsCoreAsync()
@@ -764,6 +799,10 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         RetryCount = RetryCount,
         FileDebounceMilliseconds = FileDebounceMilliseconds,
         NotificationsEnabled = NotificationsEnabled,
+        TelegramNotificationsEnabled = TelegramNotificationsEnabled,
+        TelegramBotToken = NullIfWhiteSpace(TelegramBotToken),
+        TelegramChatId = NullIfWhiteSpace(TelegramChatId),
+        TelegramIncludeReports = TelegramIncludeReports,
         AutoStart = AutoStart,
         StartMinimized = StartMinimized,
         DarkTheme = DarkTheme,
@@ -791,6 +830,10 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         RetryCount = value.RetryCount;
         FileDebounceMilliseconds = value.FileDebounceMilliseconds;
         NotificationsEnabled = value.NotificationsEnabled;
+        TelegramNotificationsEnabled = value.TelegramNotificationsEnabled;
+        TelegramBotToken = value.TelegramBotToken ?? string.Empty;
+        TelegramChatId = value.TelegramChatId ?? string.Empty;
+        TelegramIncludeReports = value.TelegramIncludeReports;
         AutoStart = value.AutoStart;
         StartMinimized = value.StartMinimized;
         DarkTheme = value.DarkTheme;

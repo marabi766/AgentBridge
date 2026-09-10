@@ -148,6 +148,24 @@ last newline: a line the writer is mid-way through must be left for next time, o
 it is shown truncated and never corrected, because the position has moved past
 it.
 
+## Notifications
+
+`INotificationService` is the seam. Every host wraps its channels in a
+`CompositeNotificationService`, which isolates failures — the tray balloon still
+appears when Telegram is down, and vice versa. Both the WPF app and the headless
+host register Telegram; the headless host has no other channel.
+
+`TelegramNotificationService` reads its token and chat id from settings on every
+call, not once, so a correction takes effect without a restart. It stays silent
+until `TelegramNotificationsEnabled` is on and both identifiers are set. It never
+throws — a chat that cannot be reached must not stop a run. Its `HttpClient` is
+the default one, which reads `HTTPS_PROXY`; this machine has no other route out.
+
+`NotifyAsync` carries an optional `NotificationAttachment` (content, not a path —
+no file I/O in a notifier, no race with the writer). The orchestrator attaches
+the protocol file at the two points an agent delivers one
+(`NotifyAgentFinishedAsync`). A channel that cannot send a file ignores it.
+
 ## Scripts
 
 `scripts\watch-bridge.ps1` must run under **Windows PowerShell 5.1** — that is

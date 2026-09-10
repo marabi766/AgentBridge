@@ -75,7 +75,20 @@ services.AddSingleton<IStateStore>(sp =>
     new JsonStateStore(stateFilePath, sp.GetRequiredService<ILogger<JsonStateStore>>()));
 services.AddSingleton<IGitService, GitService>();
 services.AddSingleton<IProjectService, ProjectService>();
-services.AddSingleton<INotificationService, NullNotificationService>();
+// The headless host has no tray balloon, so Telegram is the only way it can
+// reach an operator who is not watching the console. The null channel stays for
+// its log line.
+services.AddSingleton(_ => new HttpClient { Timeout = TimeSpan.FromSeconds(30) });
+services.AddSingleton<INotificationService>(sp => new CompositeNotificationService(
+    new INotificationService[]
+    {
+        new NullNotificationService(sp.GetRequiredService<ILogger<NullNotificationService>>()),
+        new TelegramNotificationService(
+            sp.GetRequiredService<IConfigurationService>(),
+            sp.GetRequiredService<HttpClient>(),
+            sp.GetRequiredService<ILogger<TelegramNotificationService>>()),
+    },
+    sp.GetRequiredService<ILogger<CompositeNotificationService>>()));
 services.AddSingleton<ITemplateEngine, PlaceholderTemplateEngine>();
 services.AddSingleton<IRetryPolicy, ExponentialBackoffRetryPolicy>();
 

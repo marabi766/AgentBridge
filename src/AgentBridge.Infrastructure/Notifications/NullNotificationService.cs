@@ -11,7 +11,12 @@ namespace AgentBridge.Infrastructure.Notifications;
 /// </summary>
 public sealed class NullNotificationService(ILogger<NullNotificationService> logger) : INotificationService
 {
-    public Task NotifyAsync(string title, string message, NotificationLevel level, CancellationToken cancellationToken)
+    public Task NotifyAsync(
+        string title,
+        string message,
+        NotificationLevel level,
+        CancellationToken cancellationToken,
+        NotificationAttachment? attachment = null)
     {
         logger.LogInformation("[Notification:{Level}] {Title} — {Message}", level, title, message);
         return Task.CompletedTask;

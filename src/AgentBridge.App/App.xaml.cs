@@ -6,6 +6,7 @@ using AgentBridge.Infrastructure.Agents;
 using AgentBridge.Infrastructure.FileWatching;
 using AgentBridge.Infrastructure.Git;
 using AgentBridge.Infrastructure.Logging;
+using AgentBridge.Infrastructure.Notifications;
 using AgentBridge.Infrastructure.Paths;
 using AgentBridge.Infrastructure.Persistence;
 using AgentBridge.Infrastructure.Services;
@@ -15,6 +16,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Net.Http;
 using System.Windows;
 
 namespace AgentBridge.App;
@@ -91,7 +93,23 @@ public partial class App : System.Windows.Application
         builder.Services.AddSingleton<IProjectService, ProjectService>();
         builder.Services.AddSingleton<ISettingsService, SettingsService>();
         builder.Services.AddSingleton<DesktopNotificationService>();
-        builder.Services.AddSingleton<INotificationService>(sp => sp.GetRequiredService<DesktopNotificationService>());
+        // One HttpClient for the lifetime of the process, the documented pattern
+        // for a singleton. Its default handler reads HTTPS_PROXY, which this
+        // machine needs to reach anything outside.
+        builder.Services.AddSingleton(_ => new HttpClient { Timeout = TimeSpan.FromSeconds(30) });
+        builder.Services.AddSingleton<TelegramNotificationService>(sp => new TelegramNotificationService(
+            sp.GetRequiredService<IConfigurationService>(),
+            sp.GetRequiredService<HttpClient>(),
+            sp.GetRequiredService<ILogger<TelegramNotificationService>>()));
+        // Every notification goes to the tray balloon and to Telegram; the
+        // Telegram side stays silent until it is configured and enabled.
+        builder.Services.AddSingleton<INotificationService>(sp => new CompositeNotificationService(
+            new INotificationService[]
+            {
+                sp.GetRequiredService<DesktopNotificationService>(),
+                sp.GetRequiredService<TelegramNotificationService>(),
+            },
+            sp.GetRequiredService<ILogger<CompositeNotificationService>>()));
         builder.Services.AddSingleton<ITemplateEngine, PlaceholderTemplateEngine>();
         builder.Services.AddSingleton<IRetryPolicy, ExponentialBackoffRetryPolicy>();
         builder.Services.AddSingleton<ILogService>(_ => new FileLogService(AppPaths.LogsDirectory));
