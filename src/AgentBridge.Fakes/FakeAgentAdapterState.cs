@@ -55,11 +55,6 @@ public sealed class FakeAgentAdapterState
     /// </summary>
     public List<string> ResumedMessages { get; } = [];
 
-    /// <summary>What OpenRemoteControlSessionAsync returns; null means it could not.</summary>
-    public RemoteControlSession? RemoteControlSession { get; set; }
-
-    public int RemoteControlCallCount { get; internal set; }
-
     /// <summary>How many times an operator override cleared this agent's announced allowance wait.</summary>
     public int ForgetAnnouncedQuotaWaitCallCount { get; internal set; }
 
@@ -96,8 +91,6 @@ public sealed class FakeAgentAdapterState
         SendMessageCallCount = 0;
         SentMessages.Clear();
         ResumedMessages.Clear();
-        RemoteControlSession = null;
-        RemoteControlCallCount = 0;
         ForgetAnnouncedQuotaWaitCallCount = 0;
     }
 }

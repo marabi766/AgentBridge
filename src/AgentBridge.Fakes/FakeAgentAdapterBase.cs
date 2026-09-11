@@ -4,7 +4,7 @@ using AgentBridge.Abstractions.Models;
 namespace AgentBridge.Fakes;
 
 public abstract class FakeAgentAdapterBase(string name, AgentRole role)
-    : IAgentAdapter, IReportsRunOutcome, IContinuesItsLastSession, IOpensARemoteControlSession, IWaitsOutQuotaLimits
+    : IAgentAdapter, IReportsRunOutcome, IContinuesItsLastSession, IWaitsOutQuotaLimits
 {
     public string Name { get; } = name;
 
@@ -113,15 +113,4 @@ public abstract class FakeAgentAdapterBase(string name, AgentRole role)
     public Task<string> GetDiagnosticsAsync(CancellationToken cancellationToken) => Task.FromResult(
         $"Fake adapter '{Name}' ({Role}): Running={State.IsApplicationRunning}, Ready={State.IsReady}, " +
         $"MessagesSent={State.SentMessages.Count}, Status={State.Status}");
-    /// <summary>
-    /// Hands back whatever the test set up, so the orchestrator's own behaviour
-    /// around a session — publishing the link, leaving the cycle alone — can be
-    /// checked without a real agent.
-    /// </summary>
-    public Task<RemoteControlSession?> OpenRemoteControlSessionAsync(CancellationToken cancellationToken)
-    {
-        State.RemoteControlCallCount++;
-        return Task.FromResult(State.RemoteControlSession);
-    }
-
 }

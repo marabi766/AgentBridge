@@ -20,10 +20,9 @@ public enum TelegramCommand
 /// Reads a Telegram slash command out of a message's text.
 ///
 /// Kept separate from the listener that acts on it for the same reason
-/// <see cref="AgentQuotaSignal"/> and <see cref="RemoteControlSignal"/> are
-/// separate from what reads their output: parsing is a pure function of a
-/// string and is worth testing as one, without a fake orchestrator or an HTTP
-/// call anywhere nearby.
+/// <see cref="AgentQuotaSignal"/> is separate from what reads its output:
+/// parsing is a pure function of a string and is worth testing as one,
+/// without a fake orchestrator or an HTTP call anywhere nearby.
 /// </summary>
 public static class TelegramCommandParser
 {

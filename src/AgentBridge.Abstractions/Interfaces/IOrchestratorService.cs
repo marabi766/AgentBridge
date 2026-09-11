@@ -44,13 +44,6 @@ public interface IOrchestratorService
     /// <summary>Tells Codex its last run was cut short rather than finished.</summary>
     Task RecoverCodexAsync(CancellationToken cancellationToken);
 
-    /// <summary>
-    /// Opens a Claude session the operator can drive from another device and
-    /// returns its link. Does not touch the cycle: the session is a copy of the
-    /// conversation, opened alongside the run rather than inside it.
-    /// </summary>
-    Task<RemoteControlSession?> OpenClaudeRemoteControlAsync(CancellationToken cancellationToken);
-
     /// <summary>Returns a timed-out Claude delivery to report-waiting after the operator verifies it appeared.</summary>
     Task ContinueWaitingForClaudeAsync(CancellationToken cancellationToken);
 

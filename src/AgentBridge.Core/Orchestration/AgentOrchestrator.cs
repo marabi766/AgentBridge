@@ -426,49 +426,6 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
         return _templateEngine.Render(template, variables);
     }
 
-    /// <summary>
-    /// Opens a remote control session on Claude.
-    ///
-    /// Deliberately outside <c>_actionLock</c> and outside the state machine.
-    /// This changes nothing about the cycle — it opens a copy of the
-    /// conversation next to it — and taking the lock would mean an operator
-    /// could not reach for their phone while the bridge was mid-delivery, which
-    /// is exactly when they would want to.
-    /// </summary>
-    public async Task<RemoteControlSession?> OpenClaudeRemoteControlAsync(CancellationToken cancellationToken)
-    {
-        var adapter = _agentAdapterProvider.GetAdapter(AgentRole.Claude);
-        if (adapter is not IOpensARemoteControlSession opener)
-        {
-            throw new InvalidOperationException(
-                $"{adapter.Name} cannot open a remote control session.");
-        }
-
-        _lastAction = "Opening a remote control session on Claude…";
-        PublishStatus();
-
-        var session = await opener.OpenRemoteControlSessionAsync(cancellationToken).ConfigureAwait(false);
-        if (session is null)
-        {
-            _lastAction = "Claude did not return a remote control link. See the log for what it printed.";
-            PublishStatus();
-            return null;
-        }
-
-        _lastAction = $"Remote control session {session.SessionId} is open.";
-        PublishStatus();
-
-        // Worth sending: the link is for another device, and the notification
-        // channels are how this run already reaches one.
-        await NotifyAsync(
-            "Agent Bridge — remote control",
-            $"Claude session {session.SessionId} is ready to drive from another device:\n{session.Url}",
-            NotificationLevel.Info,
-            cancellationToken).ConfigureAwait(false);
-
-        return session;
-    }
-
     private long CurrentDeliveryEpoch(AgentRole role) =>
         Interlocked.Read(ref role == AgentRole.Claude ? ref _claudeDeliveryEpoch : ref _codexDeliveryEpoch);
 

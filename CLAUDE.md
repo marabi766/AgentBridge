@@ -175,24 +175,31 @@ this, a manual Continue during an allowance wait is followed minutes later by an
 automatic full resend from the probe that was still counting down to the old
 reset — the operator switched accounts precisely so that wait no longer applies.
 
-### Remote control
+### Remote control — removed, do not re-add without solving this first
 
-`Remote control` on the dashboard opens a Claude session the operator drives from
-another device. Three CLI facts shape it, and each was found the hard way:
-`--remote-control` means nothing to a `--print` run (it is silently ignored);
-a session whose stdout is redirected is not interactive, so it cannot simply be
-run and read; and the link is never printed by the command that starts the
-session. The way through is `--bg`, which runs the session in a terminal of its
-own and returns a short id, plus `claude logs <id>` to read the link back out of
-that terminal — hence `RemoteControlSignal`, which strips the ANSI the TUI paints
-before looking for the URL.
+A "Remote control" dashboard button once opened a Claude session the operator
+could drive from another device, via `claude --bg --continue --remote-control`.
+It was removed on 2026-09-11: every click left an idle background Claude Code
+session running (`claude --bg` returns immediately and does not stop on its
+own), and nothing in the bridge or the button ever stopped one. Eight
+accumulated across one working session, found via `claude agents --json` while
+investigating unrelated system slowness they were plausibly contributing to.
 
-`--continue` makes the session a *copy* of the conversation ("started a copy of
-that conversation as …"), so it carries the bridge's history without anything
-typed there reaching a run the bridge is still watching. That is also why
-`OpenClaudeRemoteControlAsync` takes no `_actionLock` and touches no state: it
-opens beside the cycle, and needing an idle agent would deny it at the one moment
-— mid-run, away from the desk — it is wanted.
+The session it opened was also always a *fork*, never the bridge's own live
+one — `claude --continue` says as much on the way in ("started a copy of that
+conversation as …") — so it would show whatever the conversation looked like
+at the moment of the click and then go stale; the page not updating with the
+bridge's later progress was a legitimate operator complaint, not something a
+fix on the CLI side would have solved by itself.
+
+Re-adding this needs both problems solved together: the opened session has to
+be stopped by something (a background sweep, a hard cap on how many stay
+open, or the button itself closing the previous one before opening a new one),
+and a forked-but-static session has to be presented as what it is rather than
+implied to be live. `--bg` starting the session in a terminal of its own and
+returning a short id, and `claude logs <id>` being the only way to read back
+the link it draws inside that terminal rather than printing, are still true of
+the CLI and still the mechanism to build on if this comes back.
 
 ### Reading what an agent printed
 
@@ -296,7 +303,7 @@ drives `IOrchestratorService` from `/run`, `/stop`, `/pause`, `/resume`,
 `/recover_claude`, `/recover_codex` and `/help`. `TelegramCommandParser` is
 deliberately the only thing that knows what a message's text means — pure,
 tested directly, no HTTP or orchestrator anywhere near it, the same shape as
-`AgentQuotaSignal` and `RemoteControlSignal`.
+`AgentQuotaSignal`.
 
 **Never map bare `/start` to starting the bridge.** Telegram's own client sends
 a literal `/start` the first time anyone opens a chat with a bot, before they

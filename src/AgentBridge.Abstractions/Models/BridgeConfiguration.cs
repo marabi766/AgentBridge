@@ -65,20 +65,6 @@ public sealed record BridgeConfiguration
     /// <summary>How long one Claude run may take before it is abandoned.</summary>
     public int ClaudeCliTimeoutSeconds { get; init; } = 3600;
 
-    /// <summary>
-    /// What a remote control session is called, so it is recognisable among the
-    /// operator's other sessions rather than being named after the machine.
-    /// </summary>
-    public string ClaudeRemoteControlSessionName { get; init; } = "Agent Bridge";
-
-    /// <summary>
-    /// How long to wait for a remote control session to announce its link. The
-    /// link is not printed by the command that starts the session — it appears
-    /// in that session's own terminal once it has connected, which took a few
-    /// seconds every time it was measured.
-    /// </summary>
-    public int RemoteControlLinkTimeoutSeconds { get; init; } = 60;
-
     // --- Codex CLI ---
     // Drives Codex as a command line process instead of through the ChatGPT
     // desktop window. On by default, for the reasons given above.
@@ -269,9 +255,9 @@ public static class DefaultTemplates
 
         Do not assume anything you remember doing was completed. An edit you believe you made may never have reached disk, and a command you believe ran may have been killed part way.
 
-        Establish the facts first. Inspect the actual current state of the repository at {{projectPath}}: the working tree, `git status`, the Git diff, and the results of the relevant tests. Read {{promptFile}} again and compare what it asked for against what is genuinely there now.
+        Establish the facts first. Inspect the actual current state of the repository at {{projectPath}}: the working tree, `git status`, the Git diff, and the results of the relevant tests. Read {{promptFile}} again and compare what it asked for against what is genuinely there now. If a test or build was running when the previous attempt was interrupted, it did not survive — there is no process left from that run to check on. Start it again rather than looking for its result.
 
-        Then finish whatever remains of that task.
+        Then finish whatever remains of that task. If that includes a test or build that takes a while, run it and wait for it to finish before ending your turn — the same interruption that ended the previous attempt will end this one too if you background a check and stop before it completes, and every time that happens the run since the last real report is lost and has to be repeated.
 
         This is iteration {{iteration}} of at most {{maxIterations}}, on branch {{currentBranch}}.
 
@@ -310,6 +296,8 @@ public static class DefaultTemplates
         Work directly on the project repository.
 
         Run the relevant tests, validation, build, or verification steps.
+
+        If any of these take a while, run them and wait for them to finish before doing anything else — do not background a test or build and move on while it is still running. Nothing else is watching this process on your behalf: if you end your turn while a check is still running in the background, that process and its result are gone the moment you stop, and the next run starts from scratch with no memory of it. Waiting the extra minutes costs less than losing the work entirely.
 
         This is iteration {{iteration}} of at most {{maxIterations}}, on branch {{currentBranch}}.
 
