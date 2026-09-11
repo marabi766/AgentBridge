@@ -89,6 +89,52 @@ does not exist fails the run outright, and a fresh project is exactly that case)
 and starts clean every `FreshSessionEveryIterations`, so a reused conversation
 cannot carry an early dead end into a hundredth iteration.
 
+**Claude only.** `ShouldReuseSession` returns `false` outright for any role but
+Claude. Codex's own instruction requires it to independently verify the
+repository, diff and test results each iteration rather than trust what it
+remembers concluding last time — reusing its session pulls directly against
+that. Its CLI adds a narrower, harder reason: `codex exec resume` accepts a
+smaller flag set than `codex exec` (no `--sandbox` among them — confirmed
+against both commands' own `--help`, not guessed), so an ordinary iteration
+resumed this way could fail outright on a configuration `exec` itself accepts
+without complaint. `CodexCliAdapter.ExecOnlyFlags` strips exactly those flags
+before `resume --last` is assembled, but that only protects Continue and
+Recover, which resume Codex deliberately; automatic reuse between ordinary
+iterations stays off.
+
+**Each `Invoke*Async` must call `ShouldReuseSession` with its own role.**
+`InvokeCodexAsync` calling it with `AgentRole.Claude`, or the reverse, type
+checks and runs — nothing throws, nothing logs a warning — and produces exactly
+the two failures above: Claude never resumes because it is being asked about
+Codex's state, and Codex resumes whenever Claude's state happens to say so.
+This shipped once. `SessionReuseTests` pins each invocation to its own role by
+running two full iterations and checking which adapter actually saw
+`ContinueLastSessionAsync` — a test that only checks the argument passed to
+`ShouldReuseSession` would have kept passing regardless of which literal was
+there, since both are the same type.
+
+**Anything that runs after `StopRuntimeResources()` must not depend on the
+token that call just cancelled.** `StartCompletionWatchdog` starts the
+completion probe on `_runCts.Token`, and `StopRuntimeResources()` cancels and
+disposes `_runCts` — so a give-up branch reached from inside that probe (the
+allowance-exhaustion limit, an agent that produced nothing) that calls
+`StopRuntimeResources()` and then `PersistStateAsync(cancellationToken)` with
+the *same* `cancellationToken` parameter is persisting with a token already
+cancelled. Nothing crashes: `JsonStateStore.SaveAsync` awaits its file lock
+with that token first and throws before writing anything, and the outer loop's
+own `catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)`
+— written for the ordinary Stop/Pause lifecycle — swallows it as exactly that.
+`DesktopNotificationService.NotifyAsync` does the same for the same reason: it
+checks `cancellationToken.IsCancellationRequested` and quietly returns. A real
+run sat for hours believing its previous iteration was still in progress: the
+log showed the Error transition, the state file did not, and no notification
+of any kind went out. Both give-up branches now persist and notify on
+`CancellationToken.None` — this is the run's last word and it has to land
+regardless of what ended the run. `InMemoryStateStore.SaveAsync` was changed to
+throw on an already-cancelled token, matching `JsonStateStore`, specifically so
+a regression here fails `AgentOrchestratorFailurePersistenceTests` instead of
+only a real overnight run.
+
 `AgentRunCostReader` reads what a run reported spending off the line that ends
 it, and one readable summary is logged outside the line budget — it is the answer
 to "why is my allowance going", and it arrives exactly where the budget has

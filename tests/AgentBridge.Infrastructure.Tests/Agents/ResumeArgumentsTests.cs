@@ -51,9 +51,37 @@ public sealed class ResumeArgumentsTests
         // "resume" belongs after the verb. In front it would become the top-level
         // command and take exec — and the non-interactive behaviour that depends
         // on it — with it.
+        //
+        // --sandbox is dropped rather than carried forward, and that is the
+        // point of this test, not an afterthought: a real run that kept it
+        // produced exactly this configured line, and Codex refused it —
+        // "error: unexpected argument '--sandbox' ... Usage: codex exec resume
+        // --last [SESSION_ID] [PROMPT]" — because resume has no --sandbox flag
+        // at all; the policy belongs to the session being resumed, not to
+        // resuming it. The bridge read the repeated failure as real and stopped
+        // the run. CodexResumeDropsEveryFlagResumeDoesNotAccept below is the
+        // fuller regression for this.
         Assert.Equal(
-            "exec resume --last --sandbox workspace-write --skip-git-repo-check -",
+            "exec resume --last --skip-git-repo-check -",
             Codex.ResumeArguments("exec --sandbox workspace-write --skip-git-repo-check -"));
+
+    [Fact]
+    public void CodexResumeDropsEveryFlagResumeDoesNotAccept()
+    {
+        // Confirmed against `codex exec --help` and `codex exec resume --help`
+        // directly, not assumed: everything here is accepted by exec and
+        // rejected by resume. --skip-git-repo-check and -c are the control —
+        // resume accepts both, so they must survive the rewrite.
+        // model="o3" rather than a value with a space: SplitArguments drops
+        // quotes it did not need to preserve a token, and rejoining reflects
+        // that faithfully rather than reintroducing them.
+        var resumed = Codex.ResumeArguments(
+            "exec --sandbox workspace-write -C F:\\Rasta --profile ci --add-dir F:\\Other "
+            + "--color always --local-provider ollama --oss --approve-for-me "
+            + "--skip-git-repo-check -c model=o3 -");
+
+        Assert.Equal("exec resume --last --skip-git-repo-check -c model=o3 -", resumed);
+    }
 
     [Fact]
     public void CodexKeepsReadingThePromptFromStandardInput() =>

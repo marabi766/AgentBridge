@@ -10,8 +10,23 @@ namespace AgentBridge.Core.Tests.Orchestration;
 /// the expensive part of a run — measured runs spent sixty-five of them — and
 /// reusing the session skips them.
 ///
-/// The cost of reusing is a conversation that only grows, so these tests are
-/// mostly about the limits: never before there is a session, and not forever.
+/// The cost of reusing is a conversation that only grows, so the first group of
+/// tests here is about the limits: never before there is a session, and not
+/// forever.
+///
+/// The second group exists because of a bug the first group did not catch.
+/// <c>InvokeCodexAsync</c> and <c>InvokeClaudeAsync</c> each called
+/// <c>ShouldReuseSession</c> with the *other* role. It type checked and ran —
+/// nothing threw, nothing logged a warning — and in <see cref="LaterIterationsGoIntoTheSessionTheAgentAlreadyHas"/>
+/// specifically, both roles' "has a session" flags happened to already be true
+/// by the moment being checked, and the fresh-interval test only reads
+/// <c>_currentIteration</c>, a field neither role owns — so both tests kept
+/// passing throughout. A real run hit the actual failure: Codex resumed a
+/// session on an ordinary iteration it should never have touched, carrying
+/// <c>--sandbox</c> into a subcommand that does not accept it, and failed
+/// outright. The second group isolates the one thing the first group's
+/// sequencing accidentally made unobservable: which role's own state governs
+/// its own invocation.
 /// </summary>
 public sealed class SessionReuseTests
 {
@@ -94,6 +109,51 @@ public sealed class SessionReuseTests
         var status = await harness.Orchestrator.GetStatusAsync(CancellationToken.None);
         Assert.Equal(2, status.CurrentIteration);
         Assert.Empty(harness.ClaudeAdapter.State.ResumedMessages);
+    }
+
+    [Fact]
+    public async Task ClaudesSecondOrdinaryDeliveryResumesItsOwnSession()
+    {
+        // A large interval, unlike the tests above: the point here is role
+        // isolation, not the interval feature, and a coincidental fresh boundary
+        // would make this indistinguishable from the bug it exists to catch.
+        var harness = new OrchestratorTestHarness(Config(reuse: true, freshEvery: 20));
+
+        await harness.Orchestrator.StartAtAsync(BridgeStartPoint.WaitForCodexPrompt, CancellationToken.None);
+        harness.CodexWatcher.RaiseStableChange("task 1", "codex-hash-1");
+        await harness.WaitForStateAsync(BridgeState.WaitingForClaudeReport);
+        Assert.Empty(harness.ClaudeAdapter.State.ResumedMessages);
+
+        harness.ClaudeWatcher.RaiseStableChange("r1", "claude-hash-1");
+        await harness.WaitForStateAsync(BridgeState.WaitingForCodexPrompt);
+        harness.CodexWatcher.RaiseStableChange("task 2", "codex-hash-2");
+        await harness.WaitForStateAsync(BridgeState.WaitingForClaudeReport);
+
+        // This is the delivery the bug broke: asked about Codex's state instead
+        // of its own, it never resumed no matter the setting.
+        Assert.Single(harness.ClaudeAdapter.State.ResumedMessages);
+    }
+
+    [Fact]
+    public async Task CodexNeverResumesOnAnOrdinaryDeliveryEvenAfterClaudeHasASession()
+    {
+        var harness = new OrchestratorTestHarness(Config(reuse: true, freshEvery: 20));
+
+        // Once this delivery succeeds, Claude has a session and, with reuse on,
+        // ShouldReuseSession(Claude) reads true — which is exactly the state the
+        // bug let leak into Codex's own decision.
+        await harness.Orchestrator.StartAtAsync(BridgeStartPoint.WaitForCodexPrompt, CancellationToken.None);
+        harness.CodexWatcher.RaiseStableChange("task 1", "codex-hash-1");
+        await harness.WaitForStateAsync(BridgeState.WaitingForClaudeReport);
+
+        // Codex's own next ordinary delivery, right after. Codex reuse is
+        // disabled outright — it must inspect the real repository each time
+        // rather than lean on what it remembers concluding last time — so this
+        // must never resume, regardless of what Claude's state says.
+        harness.ClaudeWatcher.RaiseStableChange("r1", "claude-hash-1");
+        await harness.WaitForStateAsync(BridgeState.WaitingForCodexPrompt);
+
+        Assert.Empty(harness.CodexAdapter.State.ResumedMessages);
     }
 
     /// <summary>The harness defaults, with only the setting under test moved.</summary>

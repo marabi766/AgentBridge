@@ -81,12 +81,13 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
     // iteration's instruction on top of it. Without this a manual Continue during
     // an allowance wait would be followed, minutes later, by an automatic full
     // resend from the probe that was still counting down to the old reset.
-    // Whether this run has already delivered to the agent, and so left a session
-    // behind that resuming can land in. Asking a CLI to continue a conversation
-    // that does not exist fails the run, and the very first delivery into a fresh
-    // project is exactly that case.
+    // Whether Claude's run has already delivered, and so left a session behind
+    // that automatic reuse can land in. Asking a CLI to continue a conversation
+    // that does not exist fails the run, and the very first delivery into a
+    // fresh project is exactly that case. Codex has no equivalent: it does not
+    // reuse sessions between ordinary iterations (see ShouldReuseSession), so
+    // there is nothing here for it to guard.
     private bool _claudeSessionStarted;
-    private bool _codexSessionStarted;
 
     private long _claudeDeliveryEpoch;
     private long _codexDeliveryEpoch;
@@ -383,16 +384,27 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
     /// context they rediscover — but it is paid for with a conversation that
     /// only grows. So it is off unless asked for, never used before there is a
     /// session to resume, and interrupted periodically.
+    ///
+    /// Claude only. Codex's instruction is explicit that it must not take the
+    /// prior report's word for what happened and has to inspect the real
+    /// repository, diff and test results each time — a resumed session pulls
+    /// the opposite way, letting it lean on what it already believes from last
+    /// time instead of looking. Its own CLI also makes reuse the wrong default
+    /// here for a narrower reason: <c>codex exec resume</c> accepts a smaller
+    /// flag set than <c>codex exec</c> does — no <c>--sandbox</c> among them —
+    /// so an ordinary iteration resumed this way can fail outright on a
+    /// configuration <c>exec</c> itself accepts without complaint. Continue and
+    /// Recover still resume Codex explicitly through the same CLI path; only its
+    /// automatic reuse between ordinary iterations is disabled.
     /// </summary>
     private bool ShouldReuseSession(AgentRole role)
     {
-        if (!_configuration.ReuseAgentSessions)
+        if (role != AgentRole.Claude || !_configuration.ReuseAgentSessions)
         {
             return false;
         }
 
-        var started = role == AgentRole.Claude ? _claudeSessionStarted : _codexSessionStarted;
-        if (!started)
+        if (!_claudeSessionStarted)
         {
             return false;
         }
@@ -1353,15 +1365,24 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             ref var resends = ref (role == AgentRole.Claude ? ref _claudeQuotaResends : ref _codexQuotaResends);
             if (resends >= MaximumQuotaResends)
             {
+                // StopRuntimeResources cancels _runCts, and this method only ever
+                // runs on a token derived from it (see StartCompletionWatchdog).
+                // Using that same token below would hand PersistStateAsync and
+                // NotifyAsync a token already cancelled by the line above, so the
+                // write and the alert would both silently vanish into the
+                // "normal stop" catch further up the call chain — the operator
+                // would see nothing while the state file kept insisting nothing
+                // was wrong. This has to finish regardless of the token that
+                // brought us here.
                 StopRuntimeResources();
                 SetError(
                     $"{role} ran out of allowance {resends} times in a row on iteration {_currentIteration} and "
                     + "still could not do the work. The run is stopped rather than resending again.");
                 Transition(BridgeState.Error, _lastError!);
-                await PersistStateAsync(cancellationToken).ConfigureAwait(false);
+                await PersistStateAsync(CancellationToken.None).ConfigureAwait(false);
                 await NotifyAsync(
                     $"Agent Bridge — {role} is still out of allowance", _lastError!,
-                    NotificationLevel.Error, cancellationToken).ConfigureAwait(false);
+                    NotificationLevel.Error, CancellationToken.None).ConfigureAwait(false);
                 return false;
             }
 
@@ -1430,15 +1451,19 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
                 return;
             }
 
+            // Same reasoning as the allowance-exhausted branch above:
+            // StopRuntimeResources has just cancelled the token this method is
+            // running on, so the write and the alert must not depend on it —
+            // this is the run's last word and it has to land.
             StopRuntimeResources();
             SetError(
                 $"{role} finished without updating {fileName}, so iteration {_currentIteration} produced nothing "
                 + $"to hand on. Its run started at {sentAtUtc:u}. Check the agent's own output in the log: a "
                 + "permission it could not be granted unattended is the usual cause.");
             Transition(BridgeState.Error, _lastError!);
-            await PersistStateAsync(cancellationToken).ConfigureAwait(false);
+            await PersistStateAsync(CancellationToken.None).ConfigureAwait(false);
             await NotifyAsync(
-                $"Agent Bridge — {role} produced nothing", _lastError!, NotificationLevel.Error, cancellationToken)
+                $"Agent Bridge — {role} produced nothing", _lastError!, NotificationLevel.Error, CancellationToken.None)
                 .ConfigureAwait(false);
         }
         finally
@@ -1469,7 +1494,7 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             ?? _templateEngine.Render(_configuration.CodexInstructionTemplate, variables);
 
         var adapter = _agentAdapterProvider.GetAdapter(AgentRole.Codex);
-        var resumeSession = resumeMessage is not null || ShouldReuseSession(AgentRole.Claude);
+        var resumeSession = resumeMessage is not null || ShouldReuseSession(AgentRole.Codex);
         var success = await InvokeAgentAsync(
             adapter, message, resumeSession, cancellationToken).ConfigureAwait(false);
 
@@ -1482,7 +1507,6 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             return;
         }
 
-        _codexSessionStarted = true;
         _codexInstructionSentAtUtc = DateTimeOffset.UtcNow;
         StartCompletionWatchdog(AgentRole.Codex, adapter);
         _lastAgent = AgentRole.Codex;
@@ -1516,7 +1540,7 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             ?? _templateEngine.Render(_configuration.ClaudeInstructionTemplate, variables);
 
         var adapter = _agentAdapterProvider.GetAdapter(AgentRole.Claude);
-        var resumeSession = resumeMessage is not null || ShouldReuseSession(AgentRole.Codex);
+        var resumeSession = resumeMessage is not null || ShouldReuseSession(AgentRole.Claude);
         var success = await InvokeAgentAsync(
             adapter, message, resumeSession, cancellationToken).ConfigureAwait(false);
 
@@ -1780,7 +1804,6 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
         // A fresh state knows of no session, so the next delivery starts one
         // rather than trying to resume whatever happened to run here last.
         _claudeSessionStarted = false;
-        _codexSessionStarted = false;
         _currentIteration = 0;
         _lastClaudeReportHash = null;
         _lastCodexPromptHash = null;
