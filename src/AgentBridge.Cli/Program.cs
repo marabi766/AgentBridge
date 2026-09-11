@@ -114,10 +114,14 @@ services.AddSingleton(new FileWatcherOptions
 services.AddSingleton<IFileWatcherFactory, FileWatcherFactory>();
 services.AddSingleton<AgentOrchestrator>();
 services.AddSingleton<IOrchestratorService>(sp => sp.GetRequiredService<AgentOrchestrator>());
+// Resolved and started/stopped by hand below: this host has no generic IHost
+// driving hosted-service lifecycles, only a bare ServiceCollection.
+services.AddSingleton<TelegramCommandListener>();
 
 await using var provider = services.BuildServiceProvider();
 var orchestrator = provider.GetRequiredService<IOrchestratorService>();
 var adapters = provider.GetRequiredService<IAgentAdapterProvider>();
+var commandListener = provider.GetRequiredService<TelegramCommandListener>();
 
 if (options.StatusOnly)
 {
@@ -200,6 +204,12 @@ else
     await orchestrator.StartAsync(CancellationToken.None);
 }
 
+// This host has no window and no tray, so a Telegram /stop is the only remote
+// way to reach a run in progress. Started only once the run actually begins —
+// there is no point listening during the --status/--reset-state paths above,
+// which have already returned by here.
+await commandListener.StartAsync(CancellationToken.None);
+
 // Two ways out: the run ends on its own (iteration limit, or an error the
 // orchestrator could not recover from), or the operator interrupts it.
 var stoppedByOperator = false;
@@ -212,6 +222,7 @@ catch (OperationCanceledException)
     stoppedByOperator = true;
 }
 
+await commandListener.StopAsync(CancellationToken.None);
 await orchestrator.StopAsync(CancellationToken.None);
 (orchestrator as IDisposable)?.Dispose();
 

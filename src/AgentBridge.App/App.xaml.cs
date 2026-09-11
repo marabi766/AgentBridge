@@ -160,6 +160,10 @@ public partial class App : System.Windows.Application
 
         builder.Services.AddSingleton<AgentOrchestrator>();
         builder.Services.AddSingleton<IOrchestratorService>(sp => sp.GetRequiredService<AgentOrchestrator>());
+        // Polls for /run, /stop, and the rest for the whole process lifetime,
+        // not only while a run is active — /run has to reach an idle bridge.
+        // Stays quiet on its own until TelegramCommandsEnabled is turned on.
+        builder.Services.AddHostedService<TelegramCommandListener>();
         builder.Services.AddSingleton<MainWindowViewModel>();
         builder.Services.AddSingleton<MainWindow>();
     }

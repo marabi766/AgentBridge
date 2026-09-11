@@ -387,6 +387,10 @@
                                     <TextBlock Text="{Binding TelegramTestResult}" TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,6,0,12" />
                                     <TextBlock Text="To find your chat id: message the bot once, then open https://api.telegram.org/bot&lt;token&gt;/getUpdates and read chat.id. The test uses the saved values, so Save before testing." TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,12" />
 
+                                    <CheckBox IsChecked="{Binding TelegramCommandsEnabled}" Content="Let this chat control the bridge (/run, /stop, /pause, /resume, /status, /retry_*, /continue_*, /recover_*)" Margin="0,0,0,4"
+                                              automation:AutomationProperties.HelpText="Off by default even with notifications on: this turns a chat that only reports into one that can also stop or restart the loop. Only messages from the chat id above are ever acted on." />
+                                    <TextBlock Text="Send /help to the bot to see the full command list. A leaked bot token cannot control the bridge unless it also comes from this exact chat id." TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,12" />
+
                                     <TextBlock Text="Settings are validated and written as a single transaction. A partial save cannot occur." TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" />
                                 </StackPanel>
                             </Border>

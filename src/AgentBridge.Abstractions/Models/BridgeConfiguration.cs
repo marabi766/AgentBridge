@@ -218,6 +218,17 @@ public sealed record BridgeConfiguration
     /// </summary>
     public bool TelegramIncludeReports { get; init; } = true;
 
+    /// <summary>
+    /// Whether commands sent to the bot (<c>/run</c>, <c>/stop</c>, …) are acted
+    /// on. Off by default even once notifications are configured: receiving a
+    /// message is harmless, but a bot that will also stop or restart a build/test
+    /// loop on a word from Telegram is a materially bigger thing to turn on than
+    /// one that only reports. Only messages from <see cref="TelegramChatId"/> are
+    /// ever acted on regardless of this setting — a leaked bot token must not
+    /// become an open control channel.
+    /// </summary>
+    public bool TelegramCommandsEnabled { get; init; }
+
     public bool DryRun { get; init; } = true;
 
     public string LoggingLevel { get; init; } = "Information";

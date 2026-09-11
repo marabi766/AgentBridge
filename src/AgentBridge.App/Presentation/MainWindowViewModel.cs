@@ -34,6 +34,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private string _telegramBotToken = string.Empty;
     private string _telegramChatId = string.Empty;
     private bool _telegramIncludeReports = true;
+    private bool _telegramCommandsEnabled;
     private string _telegramTestResult = string.Empty;
     private bool _autoStart;
     private bool _startMinimized;
@@ -316,6 +317,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public string TelegramBotToken { get => _telegramBotToken; set => SetProperty(ref _telegramBotToken, value); }
     public string TelegramChatId { get => _telegramChatId; set => SetProperty(ref _telegramChatId, value); }
     public bool TelegramIncludeReports { get => _telegramIncludeReports; set => SetProperty(ref _telegramIncludeReports, value); }
+    public bool TelegramCommandsEnabled { get => _telegramCommandsEnabled; set => SetProperty(ref _telegramCommandsEnabled, value); }
 
     /// <summary>
     /// Outcome of the last "send a test message" press. The token and chat id
@@ -920,6 +922,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         TelegramBotToken = NullIfWhiteSpace(TelegramBotToken),
         TelegramChatId = NullIfWhiteSpace(TelegramChatId),
         TelegramIncludeReports = TelegramIncludeReports,
+        TelegramCommandsEnabled = TelegramCommandsEnabled,
         AutoStart = AutoStart,
         StartMinimized = StartMinimized,
         DarkTheme = DarkTheme,
@@ -955,6 +958,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         TelegramBotToken = value.TelegramBotToken ?? string.Empty;
         TelegramChatId = value.TelegramChatId ?? string.Empty;
         TelegramIncludeReports = value.TelegramIncludeReports;
+        TelegramCommandsEnabled = value.TelegramCommandsEnabled;
         AutoStart = value.AutoStart;
         StartMinimized = value.StartMinimized;
         DarkTheme = value.DarkTheme;

@@ -51,7 +51,7 @@ public sealed class TelegramNotificationService : INotificationService, ISupport
             return;
         }
 
-        var (token, chatId, includeReports) = settings.Value;
+        var (token, chatId, includeReports, configuration) = settings.Value;
         var marker = level switch
         {
             NotificationLevel.Error => "❌",
@@ -59,7 +59,7 @@ public sealed class TelegramNotificationService : INotificationService, ISupport
             _ => "ℹ️",
         };
 
-        var body = $"{marker} {title}\n\n{message}";
+        var body = TelegramMessageFormatting.Prefixed(configuration, $"{marker} {title}\n\n{message}");
         var sent = await SendMessageAsync(token, chatId, body, cancellationToken).ConfigureAwait(false);
 
         if (sent && includeReports && attachment is not null && attachment.Content.Length > 0)
@@ -78,16 +78,18 @@ public sealed class TelegramNotificationService : INotificationService, ISupport
             return false;
         }
 
-        var (token, chatId, _) = settings.Value;
+        var (token, chatId, _, configuration) = settings.Value;
         return await SendMessageAsync(
             token,
             chatId,
-            "✅ Agent Bridge is connected to this chat. You will get a message here on every "
-            + "iteration, and when a run needs attention.",
+            TelegramMessageFormatting.Prefixed(
+                configuration,
+                "✅ Agent Bridge is connected to this chat. You will get a message here on every "
+                + "iteration, and when a run needs attention."),
             cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<(string Token, string ChatId, bool IncludeReports)?> ReadSettingsAsync(
+    private async Task<(string Token, string ChatId, bool IncludeReports, BridgeConfiguration Configuration)?> ReadSettingsAsync(
         CancellationToken cancellationToken)
     {
         BridgeConfiguration configuration;
@@ -110,7 +112,8 @@ public sealed class TelegramNotificationService : INotificationService, ISupport
 
         return (configuration.TelegramBotToken.Trim(),
             configuration.TelegramChatId.Trim(),
-            configuration.TelegramIncludeReports);
+            configuration.TelegramIncludeReports,
+            configuration);
     }
 
     private async Task<bool> SendMessageAsync(

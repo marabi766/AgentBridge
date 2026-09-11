@@ -282,6 +282,51 @@ no file I/O in a notifier, no race with the writer). The orchestrator attaches
 the protocol file at the two points an agent delivers one
 (`NotifyAgentFinishedAsync`). A channel that cannot send a file ignores it.
 
+Every outbound Telegram message — a notification, a command's reply — is run
+through `TelegramMessageFormatting.Prefixed`, which puts `[ProjectFolderName]`
+in front. One operator can run the bridge against more than one project through
+the same bot; a message with no project name is ambiguous the moment that
+happens.
+
+### Telegram commands
+
+`TelegramCommandListener` is a `BackgroundService` that polls `getUpdates` and
+drives `IOrchestratorService` from `/run`, `/stop`, `/pause`, `/resume`,
+`/status`, `/retry_claude`, `/retry_codex`, `/continue_claude`, `/continue_codex`,
+`/recover_claude`, `/recover_codex` and `/help`. `TelegramCommandParser` is
+deliberately the only thing that knows what a message's text means — pure,
+tested directly, no HTTP or orchestrator anywhere near it, the same shape as
+`AgentQuotaSignal` and `RemoteControlSignal`.
+
+**Never map bare `/start` to starting the bridge.** Telegram's own client sends
+a literal `/start` the first time anyone opens a chat with a bot, before they
+have read anything it says — onboarding chrome, not a considered instruction.
+Starting the bridge is `/start`'s natural-sounding name and is deliberately
+`/run` instead; bare `/start` is handled as `/help`.
+
+Two separate guards gate every command, and both matter:
+`BridgeConfiguration.TelegramCommandsEnabled` (off even once notifications are
+on — receiving a message is harmless, acting on one is a materially bigger
+thing to turn on) and the sender's chat id matching `TelegramChatId` exactly.
+The second one is not optional even with the first off by default: a bot token
+that leaks must not become an open control channel for anyone who finds it, so
+a message from any other chat is ignored without a reply — not even an error,
+which would confirm to a stranger that commands exist to try.
+
+`ExecuteAsync` must never let an exception escape it. `BackgroundService`'s
+default failure behaviour under `Host.CreateApplicationBuilder` — used by both
+hosts — is `BackgroundServiceExceptionBehavior.StopHost`: an unhandled fault in
+a hosted service's `ExecuteAsync` stops the *entire application*, not just that
+service. A Telegram hiccup taking down the whole bridge would be far worse than
+the outage it came from, so the whole poll body is one try/catch that logs and
+backs off rather than throws.
+
+The headless host has no generic `IHost` driving hosted-service lifecycles —
+`Program.cs` builds a bare `ServiceCollection` and runs one session start to
+finish — so `TelegramCommandListener` is resolved and its `StartAsync`/`StopAsync`
+called by hand, bracketing the run, rather than registered as a true hosted
+service there.
+
 ## Scripts
 
 `scripts\watch-bridge.ps1` must run under **Windows PowerShell 5.1** — that is

@@ -12,4 +12,10 @@
     <ProjectReference Include="..\AgentBridge.Core\AgentBridge.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Abstractions only, for BackgroundService — TelegramCommandListener needs
+         a hosted lifecycle, not the rest of the Hosting package. -->
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.11" />
+  </ItemGroup>
+
 </Project>
