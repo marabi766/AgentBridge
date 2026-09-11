@@ -132,6 +132,7 @@
                             <Button Content="▸ Continue Codex" Command="{Binding ContinueCodexCommand}" automation:AutomationProperties.HelpText="Asks Codex to carry on with the session it was already having, without resending the instruction." />
                             <Button Content="⟲ Recover Claude" Command="{Binding RecoverClaudeCommand}" automation:AutomationProperties.HelpText="Use after a shutdown or crash. Tells Claude its run was cut short, so it checks the repository for what actually got done before finishing the task." />
                             <Button Content="⟲ Recover Codex" Command="{Binding RecoverCodexCommand}" automation:AutomationProperties.HelpText="Use after a shutdown or crash. Tells Codex its run was cut short, so it checks the repository before finishing its review." />
+                            <Button Content="🧹 Clear Claude Session" Command="{Binding ClearClaudeSessionCommand}" automation:AutomationProperties.HelpText="Like /clear in Claude Code. Claude's next ordinary delivery starts a brand-new session instead of resuming the one it has been carrying forward. A Continue or Recover clicked before that next delivery still resumes the session being cleared." />
                             <Button Content="■ Stop" Command="{Binding StopCommand}" Foreground="{DynamicResource ErrorBrush}" />
                             <Button Content="↻ Refresh" Command="{Binding RefreshCommand}" />
                             <Button Content="Reset state…" Command="{Binding ResetStateCommand}"

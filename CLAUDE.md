@@ -102,6 +102,31 @@ before `resume --last` is assembled, but that only protects Continue and
 Recover, which resume Codex deliberately; automatic reuse between ordinary
 iterations stays off.
 
+`ClaudeCliArguments` defaults to include `--autocompact auto` (confirmed against
+`claude --help`, not guessed), so once a resumed session grows large enough
+Claude summarises its own history instead of every later turn re-reading all of
+it at full price. It is a fallback, not a substitute for the two limits above —
+a summary is still real context on every subsequent turn. **Codex has no
+equivalent and none was added.** Nothing in `codex --help`, `codex exec --help`
+or `codex exec resume --help` compacts, summarises or manages context; its only
+history-related subcommands (`archive`, `delete`, `migrate-rollouts`) manage
+saved session files on disk, not what one session carries forward. Automatic
+reuse being permanently off for Codex already keeps this from mattering for
+ordinary iterations.
+
+`ClearClaudeSessionAsync` is the bridge's own `/clear`: resets
+`_claudeSessionStarted` so Claude's next *ordinary* delivery starts fresh
+rather than resuming. **Claude only, and not by oversight.** A `ClearCodexSessionAsync`
+was shipped once alongside it. Automatic reuse is already permanently off for
+Codex, so there was never a flag for it to reset — it updated `_lastAction` and
+nothing else, reporting an action that had not actually happened. It was
+removed rather than kept as a button that does nothing. What neither version
+could ever promise, and what any future attempt at a Codex one needs to solve
+first: Continue and Recover resume whichever session each CLI itself considers
+most recent, a choice this class has no way to affect, so a Continue or Recover
+clicked before the next ordinary delivery goes out still lands in the very
+session Clear just asked to be forgotten.
+
 **Each `Invoke*Async` must call `ShouldReuseSession` with its own role.**
 `InvokeCodexAsync` calling it with `AgentRole.Claude`, or the reverse, type
 checks and runs — nothing throws, nothing logs a warning — and produces exactly

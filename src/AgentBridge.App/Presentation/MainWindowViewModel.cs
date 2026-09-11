@@ -111,6 +111,9 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         RecoverCodexCommand = new AsyncCommand(
             () => RunOperationAsync("Telling Codex its run was cut short…", _orchestrator.RecoverCodexAsync),
             () => CanContinueCodex);
+        ClearClaudeSessionCommand = new AsyncCommand(
+            () => RunOperationAsync("Clearing Claude's session…", _orchestrator.ClearClaudeSessionAsync),
+            () => CanClearSession);
         ContinueWaitingForClaudeCommand = new AsyncCommand(
             () => RunOperationAsync("Continuing to wait for Claude…", _orchestrator.ContinueWaitingForClaudeAsync),
             () => CanContinueWaitingForClaude);
@@ -142,6 +145,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public AsyncCommand ContinueCodexCommand { get; }
     public AsyncCommand RecoverClaudeCommand { get; }
     public AsyncCommand RecoverCodexCommand { get; }
+    public AsyncCommand ClearClaudeSessionCommand { get; }
     public AsyncCommand ContinueWaitingForClaudeCommand { get; }
     public AsyncCommand ContinueWaitingForCodexCommand { get; }
     public AsyncCommand StopCommand { get; }
@@ -218,6 +222,16 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public bool CanContinueCodex => Status is not null
         && Status.CodexStatus != AgentStatus.Busy
         && Status.CurrentState is BridgeState.WaitingForCodexPrompt or BridgeState.Error;
+
+    /// <summary>
+    /// Unlike Continue and Recover, Clear touches no live run — it only resets
+    /// what the bridge remembers about Claude's own resuming, for its next
+    /// ordinary delivery. Nothing is sent to Claude, so there is no reason to
+    /// wait for it to be idle; available as soon as there is a status at all.
+    /// Claude only: Codex's automatic reuse is already permanently off, so
+    /// there is nothing for a Codex version of this to clear.
+    /// </summary>
+    public bool CanClearSession => Status is not null;
 
     public bool CanContinueWaitingForClaude => Status?.CurrentState == BridgeState.Error
         && Status.LastError?.StartsWith("Failed to deliver instruction to Claude", StringComparison.Ordinal) == true;
@@ -916,7 +930,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
     private void RaiseStatusProperties()
     {
-        foreach (var name in new[] { nameof(HasError), nameof(CanStart), nameof(CanPause), nameof(CanResume), nameof(CanRetryClaude), nameof(CanRetryCodex), nameof(CanContinueClaude), nameof(CanContinueCodex), nameof(CanContinueWaitingForClaude), nameof(CanContinueWaitingForCodex), nameof(CanStop), nameof(CanResetState), nameof(StateText), nameof(IterationText), nameof(ModeText), nameof(ModeExplanation), nameof(GeneratedText), nameof(LastActionText), nameof(LastErrorText), nameof(ClaudeStatusText), nameof(CodexStatusText), nameof(GitBranchText), nameof(GitTreeText), nameof(ClaudeFileUpdateText), nameof(CodexFileUpdateText), nameof(CycleProgress), nameof(CycleProgressText) })
+        foreach (var name in new[] { nameof(HasError), nameof(CanStart), nameof(CanPause), nameof(CanResume), nameof(CanRetryClaude), nameof(CanRetryCodex), nameof(CanContinueClaude), nameof(CanContinueCodex), nameof(CanClearSession), nameof(CanContinueWaitingForClaude), nameof(CanContinueWaitingForCodex), nameof(CanStop), nameof(CanResetState), nameof(StateText), nameof(IterationText), nameof(ModeText), nameof(ModeExplanation), nameof(GeneratedText), nameof(LastActionText), nameof(LastErrorText), nameof(ClaudeStatusText), nameof(CodexStatusText), nameof(GitBranchText), nameof(GitTreeText), nameof(ClaudeFileUpdateText), nameof(CodexFileUpdateText), nameof(CycleProgress), nameof(CycleProgressText) })
             OnPropertyChanged(name);
         StartCommand.RaiseCanExecuteChanged();
         PauseCommand.RaiseCanExecuteChanged();
@@ -927,6 +941,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         ContinueCodexCommand.RaiseCanExecuteChanged();
         RecoverClaudeCommand.RaiseCanExecuteChanged();
         RecoverCodexCommand.RaiseCanExecuteChanged();
+        ClearClaudeSessionCommand.RaiseCanExecuteChanged();
         ContinueWaitingForClaudeCommand.RaiseCanExecuteChanged();
         ContinueWaitingForCodexCommand.RaiseCanExecuteChanged();
         StopCommand.RaiseCanExecuteChanged();

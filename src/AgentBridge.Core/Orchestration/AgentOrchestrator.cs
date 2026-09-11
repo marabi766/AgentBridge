@@ -367,14 +367,41 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
             cancellationToken).ConfigureAwait(false);
 
     /// <summary>
-    /// What an agent is told after its run was cut short rather than paused.
+    /// The bridge's own <c>/clear</c> for Claude: discards its record that
+    /// Claude has a session worth resuming, so its next ordinary delivery is a
+    /// plain fresh run rather than one carrying forward everything the old
+    /// conversation had accumulated.
     ///
-    /// Continue's one word assumes the session's own account of itself is true.
-    /// After a shutdown it is not: the agent can believe it finished an edit
-    /// that never reached disk, or ran a command that was killed part way. So
-    /// this one says so, and sends it back to the repository for the facts
-    /// before it does anything else.
+    /// Claude only — there is no Codex counterpart, and not for lack of a
+    /// button. Codex's automatic reuse is already permanently off (see
+    /// <see cref="ShouldReuseSession"/>), so there is no flag here for a Codex
+    /// version of this method to discard; the only thing that ever grows
+    /// Codex's own session is a run of Continue or Recover clicks, and those
+    /// resume whichever session Codex's CLI itself considers most recent — a
+    /// choice this class has no way to affect. A "Clear Codex Session" button
+    /// was shipped once regardless. It updated <see cref="_lastAction"/> and
+    /// nothing else, which reported an action that had not actually happened
+    /// — exactly what <c>SupportsRealMessageDelivery</c> and every adapter's
+    /// honest-failure contract elsewhere in this codebase exist to prevent.
+    /// It was removed rather than kept as a placebo.
     /// </summary>
+    public async Task ClearClaudeSessionAsync(CancellationToken cancellationToken)
+    {
+        await _actionLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            _claudeSessionStarted = false;
+            _lastAction =
+                "Claude's next ordinary delivery will start a fresh session. "
+                + "A Continue or Recover clicked before then still resumes the session just cleared.";
+            PublishStatus();
+        }
+        finally
+        {
+            _actionLock.Release();
+        }
+    }
+
     /// <summary>
     /// Whether this iteration's instruction should go into the session the agent
     /// already has rather than a new one.
@@ -413,6 +440,15 @@ public sealed class AgentOrchestrator : IOrchestratorService, IDisposable
         return every <= 0 || _currentIteration <= 0 || _currentIteration % every != 0;
     }
 
+    /// <summary>
+    /// What an agent is told after its run was cut short rather than paused.
+    ///
+    /// Continue's one word assumes the session's own account of itself is true.
+    /// After a shutdown it is not: the agent can believe it finished an edit
+    /// that never reached disk, or ran a command that was killed part way. So
+    /// this one says so, and sends it back to the repository for the facts
+    /// before it does anything else.
+    /// </summary>
     private async Task<string> RenderRecoveryAsync(AgentRole role, CancellationToken cancellationToken)
     {
         var branch = await SafeRefreshGitStatusAsync(cancellationToken).ConfigureAwait(false);

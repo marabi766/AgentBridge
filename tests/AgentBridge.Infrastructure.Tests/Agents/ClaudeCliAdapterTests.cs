@@ -17,8 +17,21 @@ public sealed class ClaudeCliAdapterTests
         Assert.True(configuration.UseClaudeCli);
         Assert.Equal("claude", configuration.ClaudeCliExecutable);
         Assert.Equal(
-            new[] { "--print", "--permission-mode", "acceptEdits" },
+            new[] { "--print", "--permission-mode", "acceptEdits", "--autocompact", "auto" },
             CommandLineAgentAdapter.SplitArguments(configuration.ClaudeCliArguments));
+    }
+
+    [Fact]
+    public void DefaultConfiguration_LetsClaudeSummariseItsOwnHistoryOnceASessionGrowsLarge()
+    {
+        // Confirmed against `claude --help` ("--autocompact <auto|tokens>"),
+        // not guessed. Session reuse is what makes a conversation worth
+        // resuming turn after turn; this is what stops that same conversation
+        // from becoming the reason every later turn in it is expensive.
+        var arguments = CommandLineAgentAdapter.SplitArguments(new BridgeConfiguration().ClaudeCliArguments).ToList();
+
+        Assert.Contains("--autocompact", arguments);
+        Assert.Equal("auto", arguments[arguments.IndexOf("--autocompact") + 1]);
     }
 
     [Fact]

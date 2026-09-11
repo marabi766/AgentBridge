@@ -44,6 +44,16 @@ public interface IOrchestratorService
     /// <summary>Tells Codex its last run was cut short rather than finished.</summary>
     Task RecoverCodexAsync(CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The bridge's own <c>/clear</c> for Claude: its next ordinary delivery
+    /// starts a fresh session instead of resuming the one it has been carrying
+    /// forward. Does not touch a Continue or Recover clicked before that next
+    /// delivery goes out — those still resume whatever session the CLI itself
+    /// considers most recent. Claude only: Codex's automatic reuse is already
+    /// permanently off, so there is nothing here for a Codex version to clear.
+    /// </summary>
+    Task ClearClaudeSessionAsync(CancellationToken cancellationToken);
+
     /// <summary>Returns a timed-out Claude delivery to report-waiting after the operator verifies it appeared.</summary>
     Task ContinueWaitingForClaudeAsync(CancellationToken cancellationToken);
 

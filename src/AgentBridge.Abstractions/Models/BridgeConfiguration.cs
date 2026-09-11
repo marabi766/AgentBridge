@@ -59,8 +59,18 @@ public sealed record BridgeConfiguration
     /// <c>acceptEdits</c> is the conservative choice and still asks before
     /// running commands; operators who want the loop to build and test without
     /// supervision set <c>--dangerously-skip-permissions</c> here.
+    ///
+    /// <c>--autocompact auto</c> (confirmed against <c>claude --help</c>, not
+    /// guessed) lets Claude summarise its own history once a session it is
+    /// resuming grows large, instead of every turn re-reading the whole thing
+    /// at full price. Session reuse is what makes a long-running conversation
+    /// possible at all; this is what keeps one from becoming the reason the
+    /// allowance runs out. It is a fallback, not a substitute for
+    /// <see cref="FreshSessionEveryIterations"/> or Clear Claude Session — a
+    /// summary is still real context on every subsequent turn.
     /// </summary>
-    public string ClaudeCliArguments { get; init; } = "--print --permission-mode acceptEdits";
+    public string ClaudeCliArguments { get; init; } =
+        "--print --permission-mode acceptEdits --autocompact auto";
 
     /// <summary>How long one Claude run may take before it is abandoned.</summary>
     public int ClaudeCliTimeoutSeconds { get; init; } = 3600;
