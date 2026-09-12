@@ -1,4 +1,5 @@
 using AgentBridge.Abstractions.Interfaces;
+using AgentBridge.Abstractions.Models;
 using AgentBridge.Core.Orchestration;
 using AgentBridge.Core.Retry;
 using AgentBridge.Core.Templates;
@@ -44,8 +45,20 @@ public partial class App : System.Windows.Application
 
         AppPaths.EnsureDirectoriesExist();
 
+        // The theme is applied before the login prompt so it isn't shown in
+        // light mode for a moment on a dark-themed install.
+        var bootstrapConfig = new JsonConfigurationService(AppPaths.SettingsFilePath, NullLogger<JsonConfigurationService>.Instance)
+            .LoadAsync(CancellationToken.None).GetAwaiter().GetResult();
+        ThemeManager.Apply(bootstrapConfig.DarkTheme);
+
+        if (new LoginWindow().ShowDialog() != true)
+        {
+            Shutdown();
+            return;
+        }
+
         var builder = Host.CreateApplicationBuilder(e.Args);
-        ConfigureServices(builder);
+        ConfigureServices(builder, bootstrapConfig);
         _host = builder.Build();
         await _host.StartAsync();
 
@@ -78,7 +91,7 @@ public partial class App : System.Windows.Application
         base.OnExit(e);
     }
 
-    private static void ConfigureServices(HostApplicationBuilder builder)
+    private static void ConfigureServices(HostApplicationBuilder builder, BridgeConfiguration bootstrapConfig)
     {
         builder.Logging.ClearProviders();
         builder.Logging.AddProvider(new DailyFileLoggerProvider(new DailyFileLoggerOptions { LogsDirectory = AppPaths.LogsDirectory }));
@@ -113,9 +126,6 @@ public partial class App : System.Windows.Application
         builder.Services.AddSingleton<ITemplateEngine, PlaceholderTemplateEngine>();
         builder.Services.AddSingleton<IRetryPolicy, ExponentialBackoffRetryPolicy>();
         builder.Services.AddSingleton<ILogService>(_ => new FileLogService(AppPaths.LogsDirectory));
-
-        var bootstrapConfig = new JsonConfigurationService(AppPaths.SettingsFilePath, NullLogger<JsonConfigurationService>.Instance)
-            .LoadAsync(CancellationToken.None).GetAwaiter().GetResult();
 
         builder.Services.AddSingleton<IConversationLocator, SemanticConversationLocator>();
         builder.Services.AddSingleton<IInputLocator, SemanticInputLocator>();

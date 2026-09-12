@@ -515,6 +515,7 @@
         <Border Grid.Row="3" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="0,1,0,0" Padding="12,6">
             <DockPanel>
                 <TextBlock Text="Service connected" Foreground="{DynamicResource VerifiedBrush}" DockPanel.Dock="Left" />
+                <TextBlock Text="© 2026 Mohammad Arabi. All rights reserved." Foreground="{DynamicResource SecondaryTextBrush}" FontSize="11" DockPanel.Dock="Right" Margin="12,0,0,0" />
                 <TextBlock Text="{Binding OperationMessage}" Foreground="{DynamicResource SecondaryTextBrush}" TextAlignment="Right" />
             </DockPanel>
         </Border>
