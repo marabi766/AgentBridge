@@ -30,6 +30,17 @@ public partial class App : System.Windows.Application
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        // WPF implicitly treats the first window ever shown as MainWindow when
+        // nothing has set it explicitly yet — and with the default
+        // OnMainWindowClose, closing that window (here, the login prompt,
+        // whether by a correct password or Exit) shuts the whole application
+        // down before the real MainWindow is ever built. Explicit shutdown
+        // during the login phase avoids that; it is switched back once the
+        // real MainWindow is assigned below, so a plain close of that window
+        // still exits the app exactly as before.
+        ShutdownMode = ShutdownMode.OnExplicitShutdown;
+
         _singleInstance = new SingleInstanceCoordinator(() => Dispatcher.BeginInvoke(() =>
         {
             if (MainWindow is MainWindow window)
@@ -64,6 +75,7 @@ public partial class App : System.Windows.Application
 
         var window = _host.Services.GetRequiredService<MainWindow>();
         MainWindow = window;
+        ShutdownMode = ShutdownMode.OnMainWindowClose;
         window.Show();
     }
 
