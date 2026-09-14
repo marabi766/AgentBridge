@@ -35,6 +35,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private string _telegramChatId = string.Empty;
     private bool _telegramIncludeReports = true;
     private bool _telegramCommandsEnabled;
+    private string _telegramStatusOnlyChatId = string.Empty;
+    private bool _telegramLanguagePersian;
     private string _telegramTestResult = string.Empty;
     private bool _autoStart;
     private bool _startMinimized;
@@ -320,6 +322,29 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public string TelegramChatId { get => _telegramChatId; set => SetProperty(ref _telegramChatId, value); }
     public bool TelegramIncludeReports { get => _telegramIncludeReports; set => SetProperty(ref _telegramIncludeReports, value); }
     public bool TelegramCommandsEnabled { get => _telegramCommandsEnabled; set => SetProperty(ref _telegramCommandsEnabled, value); }
+    public string TelegramStatusOnlyChatId { get => _telegramStatusOnlyChatId; set => SetProperty(ref _telegramStatusOnlyChatId, value); }
+
+    /// <summary>
+    /// Language for the bot's own replies. A bool pair (rather than the raw
+    /// "en"/"fa" string) so the two choices can bind directly to a pair of
+    /// radio buttons, the same shape as <see cref="UseClaudeDesktop"/>/<see cref="UseClaudeCli"/>.
+    /// </summary>
+    public bool TelegramLanguageEnglish
+    {
+        get => !_telegramLanguagePersian;
+        set => TelegramLanguagePersian = !value;
+    }
+    public bool TelegramLanguagePersian
+    {
+        get => _telegramLanguagePersian;
+        set
+        {
+            if (SetProperty(ref _telegramLanguagePersian, value))
+            {
+                OnPropertyChanged(nameof(TelegramLanguageEnglish));
+            }
+        }
+    }
 
     /// <summary>
     /// Outcome of the last "send a test message" press. The token and chat id
@@ -869,6 +894,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         TelegramChatId = NullIfWhiteSpace(TelegramChatId),
         TelegramIncludeReports = TelegramIncludeReports,
         TelegramCommandsEnabled = TelegramCommandsEnabled,
+        TelegramStatusOnlyChatId = NullIfWhiteSpace(TelegramStatusOnlyChatId),
+        TelegramLanguage = TelegramLanguagePersian ? "fa" : "en",
         AutoStart = AutoStart,
         StartMinimized = StartMinimized,
         DarkTheme = DarkTheme,
@@ -904,6 +931,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         TelegramChatId = value.TelegramChatId ?? string.Empty;
         TelegramIncludeReports = value.TelegramIncludeReports;
         TelegramCommandsEnabled = value.TelegramCommandsEnabled;
+        TelegramStatusOnlyChatId = value.TelegramStatusOnlyChatId ?? string.Empty;
+        TelegramLanguagePersian = string.Equals(value.TelegramLanguage, "fa", StringComparison.OrdinalIgnoreCase);
         AutoStart = value.AutoStart;
         StartMinimized = value.StartMinimized;
         DarkTheme = value.DarkTheme;

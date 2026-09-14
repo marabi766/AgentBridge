@@ -374,6 +374,18 @@
                                               automation:AutomationProperties.HelpText="Off by default even with notifications on: this turns a chat that only reports into one that can also stop or restart the loop. Only messages from the chat id above are ever acted on." />
                                     <TextBlock Text="Send /help to the bot to see the full command list. A leaked bot token cannot control the bridge unless it also comes from this exact chat id." TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,12" />
 
+                                    <TextBlock Text="STATUS-ONLY CHAT IDS (OPTIONAL)" Style="{StaticResource Caption}" />
+                                    <TextBox Text="{Binding TelegramStatusOnlyChatId, UpdateSourceTrigger=PropertyChanged}" Margin="0,3,0,8"
+                                             automation:AutomationProperties.HelpText="One or more chats — different Telegram accounts or groups, comma-separated or one per line — that can send only /status. Works independently of the checkbox above, so you can hand out read-only status without giving anyone control." />
+                                    <TextBlock Text="Comma-separated or one per line. Any other command from these chats gets a reply saying it is limited to /status. Leave empty to disable." TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,12" />
+
+                                    <TextBlock Text="BOT REPLY LANGUAGE" Style="{StaticResource Caption}" />
+                                    <StackPanel Orientation="Horizontal" Margin="0,4,0,4">
+                                        <RadioButton GroupName="TelegramLanguage" Content="English" IsChecked="{Binding TelegramLanguageEnglish}" Margin="0,0,16,0" />
+                                        <RadioButton GroupName="TelegramLanguage" Content="فارسی" IsChecked="{Binding TelegramLanguagePersian}" />
+                                    </StackPanel>
+                                    <TextBlock Text="Applies to the bot's own replies — help, status labels, command confirmations. Recorded error and action text stays in English wherever it is relayed verbatim, since parts of the app match it by its English wording." TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,12" />
+
                                     <TextBlock Text="Settings are validated and written as a single transaction. A partial save cannot occur." TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}" />
                                 </StackPanel>
                             </Border>

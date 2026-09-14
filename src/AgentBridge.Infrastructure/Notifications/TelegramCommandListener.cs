@@ -13,11 +13,14 @@ namespace AgentBridge.Infrastructure.Notifications;
 ///
 /// This turns a bot that only reports into one that also controls the bridge,
 /// which is a materially bigger thing to expose, so two separate guards apply
-/// before anything is acted on: <see cref="BridgeConfiguration.TelegramCommandsEnabled"/>
+/// before anything beyond <c>/status</c> is acted on: <see cref="BridgeConfiguration.TelegramCommandsEnabled"/>
 /// must be on, and the message must come from exactly the configured
 /// <see cref="BridgeConfiguration.TelegramChatId"/> — every other chat is
 /// ignored without a reply, so a bot whose token leaked does not even confirm
-/// that commands exist to try.
+/// that commands exist to try. The one exception is
+/// <see cref="BridgeConfiguration.TelegramStatusOnlyChatId"/>, a second,
+/// deliberately configured chat that gets <c>/status</c> alone, regardless of
+/// <see cref="BridgeConfiguration.TelegramCommandsEnabled"/>.
 ///
 /// Runs as a hosted background service for the process's whole lifetime, not
 /// only while a run is active: <c>/run</c> has to reach an idle bridge too.
@@ -69,9 +72,11 @@ public sealed class TelegramCommandListener : BackgroundService
             try
             {
                 var configuration = await _configurationService.LoadAsync(stoppingToken).ConfigureAwait(false);
-                if (!configuration.TelegramCommandsEnabled
-                    || string.IsNullOrWhiteSpace(configuration.TelegramBotToken)
-                    || string.IsNullOrWhiteSpace(configuration.TelegramChatId))
+                var hasFullControlChat = configuration.TelegramCommandsEnabled
+                    && !string.IsNullOrWhiteSpace(configuration.TelegramChatId);
+                var hasStatusOnlyChat = !string.IsNullOrWhiteSpace(configuration.TelegramStatusOnlyChatId);
+                if (string.IsNullOrWhiteSpace(configuration.TelegramBotToken)
+                    || (!hasFullControlChat && !hasStatusOnlyChat))
                 {
                     await Task.Delay(IdlePollInterval, stoppingToken).ConfigureAwait(false);
                     continue;
@@ -101,7 +106,10 @@ public sealed class TelegramCommandListener : BackgroundService
     private async Task PollOnceAsync(BridgeConfiguration configuration, CancellationToken cancellationToken)
     {
         var token = configuration.TelegramBotToken!.Trim();
-        var chatId = configuration.TelegramChatId!.Trim();
+        var fullControlChatId = configuration.TelegramCommandsEnabled
+            ? configuration.TelegramChatId?.Trim()
+            : null;
+        var statusOnlyChatIds = ParseChatIds(configuration.TelegramStatusOnlyChatId);
 
         var url = $"https://api.telegram.org/bot{token}/getUpdates"
             + $"?offset={_offset}&timeout={LongPollSeconds}&allowed_updates=%5B%22message%22%5D";
@@ -135,20 +143,24 @@ public sealed class TelegramCommandListener : BackgroundService
             }
 
             var fromChatId = message.Chat.Id.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            if (!string.Equals(fromChatId, chatId, StringComparison.Ordinal))
+            var isFullControl = fullControlChatId is not null
+                && string.Equals(fromChatId, fullControlChatId, StringComparison.Ordinal);
+            var isStatusOnly = !isFullControl && statusOnlyChatIds.Contains(fromChatId);
+            if (!isFullControl && !isStatusOnly)
             {
                 _logger.LogWarning(
-                    "Ignored a Telegram message from chat {Chat}, which is not the configured chat.", fromChatId);
+                    "Ignored a Telegram message from chat {Chat}, which is not a configured chat.", fromChatId);
                 continue;
             }
 
-            await HandleMessageAsync(message.Text, token, chatId, configuration, cancellationToken)
+            await HandleMessageAsync(message.Text, token, fromChatId, isFullControl, configuration, cancellationToken)
                 .ConfigureAwait(false);
         }
     }
 
     private async Task HandleMessageAsync(
-        string text, string token, string chatId, BridgeConfiguration configuration, CancellationToken cancellationToken)
+        string text, string token, string chatId, bool isFullControl, BridgeConfiguration configuration,
+        CancellationToken cancellationToken)
     {
         var command = TelegramCommandParser.Parse(text);
         if (command is null)
@@ -159,24 +171,39 @@ public sealed class TelegramCommandListener : BackgroundService
             return;
         }
 
+        var language = TelegramText.ParseLanguage(configuration.TelegramLanguage);
+
+        // The status-only chat gets exactly one command. Answering rather than
+        // ignoring is deliberate: unlike an unrecognised chat, this one was
+        // configured on purpose, so there is nothing to avoid confirming to it.
+        if (!isFullControl && command != TelegramCommand.Status)
+        {
+            await SendReplyAsync(
+                    token, chatId,
+                    TelegramMessageFormatting.Prefixed(configuration, TelegramText.StatusOnlyRestriction(language)),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
         string reply;
         try
         {
             reply = command.Value switch
             {
-                TelegramCommand.Help => HelpText(),
-                TelegramCommand.Run => await ExecuteAndConfirmAsync(_orchestrator.StartAsync, "Started.", cancellationToken).ConfigureAwait(false),
-                TelegramCommand.Stop => await ExecuteAndConfirmAsync(_orchestrator.StopAsync, "Stopped.", cancellationToken).ConfigureAwait(false),
-                TelegramCommand.Pause => await ExecuteAndConfirmAsync(_orchestrator.PauseAsync, "Paused.", cancellationToken).ConfigureAwait(false),
-                TelegramCommand.Resume => await ExecuteAndConfirmAsync(_orchestrator.ResumeAsync, "Resumed.", cancellationToken).ConfigureAwait(false),
-                TelegramCommand.Status => await StatusTextAsync(cancellationToken).ConfigureAwait(false),
-                TelegramCommand.RetryClaude => await ExecuteAndConfirmAsync(_orchestrator.RetryClaudeDeliveryAsync, "Retrying Claude.", cancellationToken).ConfigureAwait(false),
-                TelegramCommand.RetryCodex => await ExecuteAndConfirmAsync(_orchestrator.RetryCodexDeliveryAsync, "Retrying Codex.", cancellationToken).ConfigureAwait(false),
-                TelegramCommand.ContinueClaude => await ExecuteAndConfirmAsync(_orchestrator.ContinueClaudeAsync, "Asking Claude to continue.", cancellationToken).ConfigureAwait(false),
-                TelegramCommand.ContinueCodex => await ExecuteAndConfirmAsync(_orchestrator.ContinueCodexAsync, "Asking Codex to continue.", cancellationToken).ConfigureAwait(false),
-                TelegramCommand.RecoverClaude => await ExecuteAndConfirmAsync(_orchestrator.RecoverClaudeAsync, "Telling Claude its run was cut short.", cancellationToken).ConfigureAwait(false),
-                TelegramCommand.RecoverCodex => await ExecuteAndConfirmAsync(_orchestrator.RecoverCodexAsync, "Telling Codex its run was cut short.", cancellationToken).ConfigureAwait(false),
-                _ => HelpText(),
+                TelegramCommand.Help => TelegramText.HelpText(language),
+                TelegramCommand.Run => await ExecuteAndConfirmAsync(_orchestrator.StartAsync, TelegramText.Started(language), cancellationToken).ConfigureAwait(false),
+                TelegramCommand.Stop => await ExecuteAndConfirmAsync(_orchestrator.StopAsync, TelegramText.Stopped(language), cancellationToken).ConfigureAwait(false),
+                TelegramCommand.Pause => await ExecuteAndConfirmAsync(_orchestrator.PauseAsync, TelegramText.Paused(language), cancellationToken).ConfigureAwait(false),
+                TelegramCommand.Resume => await ExecuteAndConfirmAsync(_orchestrator.ResumeAsync, TelegramText.Resumed(language), cancellationToken).ConfigureAwait(false),
+                TelegramCommand.Status => await StatusTextAsync(language, cancellationToken).ConfigureAwait(false),
+                TelegramCommand.RetryClaude => await ExecuteAndConfirmAsync(_orchestrator.RetryClaudeDeliveryAsync, TelegramText.RetryingClaude(language), cancellationToken).ConfigureAwait(false),
+                TelegramCommand.RetryCodex => await ExecuteAndConfirmAsync(_orchestrator.RetryCodexDeliveryAsync, TelegramText.RetryingCodex(language), cancellationToken).ConfigureAwait(false),
+                TelegramCommand.ContinueClaude => await ExecuteAndConfirmAsync(_orchestrator.ContinueClaudeAsync, TelegramText.ContinuingClaude(language), cancellationToken).ConfigureAwait(false),
+                TelegramCommand.ContinueCodex => await ExecuteAndConfirmAsync(_orchestrator.ContinueCodexAsync, TelegramText.ContinuingCodex(language), cancellationToken).ConfigureAwait(false),
+                TelegramCommand.RecoverClaude => await ExecuteAndConfirmAsync(_orchestrator.RecoverClaudeAsync, TelegramText.RecoveringClaude(language), cancellationToken).ConfigureAwait(false),
+                TelegramCommand.RecoverCodex => await ExecuteAndConfirmAsync(_orchestrator.RecoverCodexAsync, TelegramText.RecoveringCodex(language), cancellationToken).ConfigureAwait(false),
+                _ => TelegramText.HelpText(language),
             };
         }
         catch (Exception ex)
@@ -186,7 +213,7 @@ public sealed class TelegramCommandListener : BackgroundService
             // resume. That is an answer to relay, not a fault to hide behind a
             // generic failure message.
             _logger.LogWarning(ex, "Telegram command {Command} failed.", command);
-            reply = $"Could not do that: {ex.Message}";
+            reply = TelegramText.CouldNotDoThat(language, ex.Message);
         }
 
         await SendReplyAsync(token, chatId, TelegramMessageFormatting.Prefixed(configuration, reply), cancellationToken)
@@ -201,41 +228,55 @@ public sealed class TelegramCommandListener : BackgroundService
         return confirmation;
     }
 
-    private async Task<string> StatusTextAsync(CancellationToken cancellationToken)
+    private async Task<string> StatusTextAsync(TelegramLanguage language, CancellationToken cancellationToken)
     {
         var status = await _orchestrator.GetStatusAsync(cancellationToken).ConfigureAwait(false);
-        var mode = status.DryRun ? "Dry Run" : "LIVE";
+        var mode = TelegramText.ModeLabel(language, status.DryRun);
+        var stateText = TelegramText.StateLabel(language, status.StatusText);
         var lines = new List<string>
         {
-            $"{status.StatusText} ({mode})",
-            $"Iteration {status.CurrentIteration}/{status.MaximumIterations}",
+            $"{stateText} ({mode})",
+            TelegramText.IterationLabel(language, status.CurrentIteration, status.MaximumIterations),
             $"Claude: {status.ClaudeStatus}  ·  Codex: {status.CodexStatus}",
         };
 
         if (!string.IsNullOrWhiteSpace(status.GitBranch))
         {
-            lines.Add($"Branch: {status.GitBranch}");
+            lines.Add(TelegramText.BranchLabel(language, status.GitBranch));
         }
 
         if (!string.IsNullOrWhiteSpace(status.LastError))
         {
-            lines.Add($"Last error: {status.LastError}");
+            lines.Add(TelegramText.LastErrorLabel(language, status.LastError));
         }
 
         return string.Join('\n', lines);
     }
 
-    private static string HelpText() => string.Join('\n',
-    [
-        "Commands:",
-        "/run — start or resume from the last checkpoint",
-        "/stop — stop the current run",
-        "/pause, /resume",
-        "/status — current state",
-        "/retry_claude, /retry_codex — resend the current instruction",
-        "/continue_claude, /continue_codex — ask an agent to carry on",
-        "/recover_claude, /recover_codex — use after a shutdown or crash",
-    ]);
+    /// <summary>
+    /// Reads one or more chat ids out of a settings field — one per line, or
+    /// comma-separated on one line, matching how <c>AgentEnvironment</c> reads
+    /// its own multi-value field. Blank entries are dropped.
+    /// </summary>
+    private static HashSet<string> ParseChatIds(string? raw)
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return ids;
+        }
+
+        foreach (var candidate in raw.Split(['\n', '\r', ','], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var trimmed = candidate.Trim();
+            if (trimmed.Length > 0)
+            {
+                ids.Add(trimmed);
+            }
+        }
+
+        return ids;
+    }
 
     private async Task SendReplyAsync(string token, string chatId, string text, CancellationToken cancellationToken)
     {

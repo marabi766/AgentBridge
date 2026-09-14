@@ -225,6 +225,31 @@ public sealed record BridgeConfiguration
     /// </summary>
     public bool TelegramCommandsEnabled { get; init; }
 
+    /// <summary>
+    /// One or more chats — a different Telegram account, a group, each on its
+    /// own line or comma-separated — allowed to send exactly one command,
+    /// <c>/status</c>, for following the run without handing out
+    /// <see cref="TelegramCommandsEnabled"/>'s full control. Independent of
+    /// that setting: every chat listed here gets <c>/status</c> whether or not
+    /// the primary <see cref="TelegramChatId"/> has command control turned on.
+    /// Any other command from one of these chats gets a reply saying so rather
+    /// than being acted on or silently ignored — unlike an unrecognised chat,
+    /// these were deliberately configured, so there is nothing to avoid
+    /// confirming to them.
+    /// </summary>
+    public string? TelegramStatusOnlyChatId { get; init; }
+
+    /// <summary>
+    /// Language for the bot's own replies (help, status, command
+    /// confirmations): <c>"en"</c> or <c>"fa"</c>. Anything else falls back to
+    /// English. Deliberately does not touch <c>LastError</c>/<c>LastAction</c>
+    /// text relayed verbatim inside a reply — those are matched elsewhere by
+    /// their English prefix (<c>MainWindowViewModel.CanRetryCodex</c> and the
+    /// <c>CanContinueWaitingFor*</c> properties), so translating them would
+    /// silently break button enablement.
+    /// </summary>
+    public string TelegramLanguage { get; init; } = "en";
+
     public bool DryRun { get; init; } = true;
 
     public string LoggingLevel { get; init; } = "Information";
